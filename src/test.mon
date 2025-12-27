@@ -1,0 +1,17 @@
+#!./monitor
+# TEST PROG
+
+# d is deposit, f is flash (make ROM)
+d 1234 11 22 33 44 55 66 77 88 99 AA BB\
+       CC DD EE FF
+d 1000\
+00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+
+d 2000 0xaa,0xbb,0xcc
+
+# is examine
+e 1234.......
+
+# l is load, r is load ROM
+# g is go (jumps to reset vector)
+# TEST END
