@@ -1,3 +1,7 @@
+/*  bad6502 A Raspberry Pi-based backend to a 65C02 CPU
+    Copyright (C) 2025  D.Herrendoerfer
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -475,7 +479,6 @@ int main(int argc, char **argv)
         printf("read until 0x%04X\r\n",(address-1));
 
         close(fd);
-
       }
     }
     // GO
