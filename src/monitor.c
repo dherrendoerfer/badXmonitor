@@ -12,7 +12,7 @@
 #include <sys/select.h>
 #include <termios.h>
 
-#include "fake6502.h"
+#include "bad6502.h"
 
 // the ram
 uint8_t mem[0x10000];

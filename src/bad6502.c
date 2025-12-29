@@ -12,7 +12,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "fake6502.h"
+#include "bad6502.h"
 
 // MMIO base (detected)
 uint32_t mmio_peri_base;
