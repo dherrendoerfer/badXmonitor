@@ -12,6 +12,7 @@ f : flash (deposit and mark page as rom)
 p : protect mark a page as readonly  
 l : load a file at address  
 r : load a file at address and those pages mark readonly  
+h : load a hardware plugin and map it  
 g : go (reset the cpu and start from reset vector)  
 
 ### adresses and data

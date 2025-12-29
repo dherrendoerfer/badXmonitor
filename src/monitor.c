@@ -2,12 +2,13 @@
     Copyright (C) 2025  D.Herrendoerfer
 */
 
-#include <stdio.h>
-#include <stdlib.h>
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <time.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/select.h>
 #include <termios.h>
@@ -16,7 +17,15 @@
 
 // the ram
 uint8_t mem[0x10000];
-uint8_t rom_map[256];
+uint8_t rom_map[0x100];
+void *io_map_read[0x1000];
+void* io_map_write[0x1000];
+
+// plugins
+void *plugins[32]; 
+void *plugins_tick[32]; 
+uint8_t plugin_num = 0;
+uint8_t plugin_tick_num = 0;
 
 // input buffer
 char data_buffer[256];
@@ -86,21 +95,107 @@ int getch_from_file(int file)
     }
 }
 
+int loadLib(char* libname, uint16_t base_address)
+{
+
+  void *handle;
+  const char* (*name)(void);
+  void (*mon_init)(uint16_t, void*);
+  int (*mon_banks)();
+  int (*mon_tick)();
+  uint8_t (*mon_read)(uint16_t);
+  void (*mon_write)(uint16_t, uint8_t);
+  void (*mon_do_tick)(uint8_t);
+  char *error;
+
+  handle = dlopen (libname, RTLD_LAZY);
+  if (!handle) {
+      fputs (dlerror(), stderr);
+      exit(1);
+  }
+  // get the plugin name
+  name = dlsym(handle, "name");
+  if ((error = dlerror()) != NULL)  {
+      fputs(error, stderr);
+      exit(1);
+  }
+  printf("\r\nloaded: %s at base_address: 0x%04X\r\n",name(),base_address);
+
+  // register the plugin address and memory
+  mon_init = dlsym(handle, "mon_init");
+  if ((error = dlerror()) != NULL)  {
+      fputs(error, stderr);
+      exit(1);
+  }
+  (*mon_init) (base_address, mem);
+
+  // get the number of mem banks to register
+  mon_banks = dlsym(handle, "mon_banks");
+  if ((error = dlerror()) != NULL)  {
+      fputs(error, stderr);
+      exit(1);
+  }
+  int banks_to_register=(*mon_banks)();
+
+  // see if this plugin needs a tick()
+  mon_tick = dlsym(handle, "mon_tick");
+  if ((error = dlerror()) != NULL)  {
+      fputs(error, stderr);
+      exit(1);
+  }
+  int register_tick=(*mon_tick)();
+
+  if (register_tick == 1) {
+    mon_do_tick = dlsym(handle, "mon_do_tick");
+    if ((error = dlerror()) != NULL)  {
+        fputs(error, stderr);
+        exit(1);
+    }
+  }
+
+    // get the read and write functions
+  mon_read = dlsym(handle, "mon_read");
+  if ((error = dlerror()) != NULL)  {
+      fputs(error, stderr);
+      exit(1);
+  }
+
+  // see if this plugin needs a tick()
+  mon_write = dlsym(handle, "mon_write");
+  if ((error = dlerror()) != NULL)  {
+      fputs(error, stderr);
+      exit(1);
+  }
+
+  // finally register everything
+  for (int i=0; i<banks_to_register; i++) {
+    io_map_read[(base_address>>4)+i] = mon_read; 
+    io_map_write[(base_address>>4)+i] = mon_write; 
+  }
+
+  if (register_tick == 1) {
+    plugins_tick[plugin_tick_num]=mon_do_tick;
+    plugin_tick_num++;
+  }
+
+  plugins[plugin_num++]=handle;
+
+  return 0;
+}
 
 // mem read
 uint8_t read6502(uint16_t address, uint8_t bank)
-{
-  // Manual reset vector
-//  if (address == 0xFFFC)
-//    return COLD_START & 0xff; 
-//  if (address == 0xFFFD)
-//    return COLD_START >> 8;
-  
+{  
   // Virtual hardware (reads a char from stdin)
   if (address == 0xFF01) {
     if (!kbhit())
       return 0;
     return getch();
+  }
+
+  if (io_map_read[address>>4] != 0) {
+    uint8_t (*io_read)(uint16_t) = io_map_read[address>>4] ;
+    return (*io_read)(address);
   }
 
   return mem[address];
@@ -109,7 +204,6 @@ uint8_t read6502(uint16_t address, uint8_t bank)
 // mem write
 void write6502(uint16_t address, uint8_t bank, uint8_t data)
 {
-
   // Virtual hardware (writes char to stdout)
   if (address == 0xFF00) {
     printf("%c",(char)data);
@@ -117,9 +211,16 @@ void write6502(uint16_t address, uint8_t bank, uint8_t data)
     return;
   }
 
+  if (io_map_write[address>>4] != 0) {
+    void (*io_write)(uint16_t, uint8_t) = io_map_write[address>>4] ;
+    (*io_write)(address, data);
+    return;
+  }
+
   if (rom_map[address>>8] == 1) //simulated ROM 
     return;
 
+  //printf("X");
   mem[address] = data;
 }
 
@@ -175,8 +276,7 @@ int getByte(uint8_t *data)
       else if (key == '\\') {
         key=getch_from_file(infile); //skip newline
         key=getch_from_file(infile);
-      }
-      else
+      } else
         break;    
     }
   }
@@ -195,8 +295,7 @@ int getByte(uint8_t *data)
         *data += key - 'A' + 10;
       else if ( key == 'x' && valid == 1) {
         valid = -1;
-      }
-      else 
+      } else 
         return -1;
 
       printf("%c",key);
@@ -324,7 +423,7 @@ int main(int argc, char **argv)
       int err=0;
       
       if ((err=getDouble(&address)) > 0){
-        printf("\r\n--> 0x%04X  0x%02X",address, mem[address]);
+        printf("\r\n--> 0x%04X  0x%02X",address, read6502(address,0));
       }
       else {
         printf(" ????\r\n");
@@ -345,10 +444,10 @@ int main(int argc, char **argv)
         while (i == ' ' || i == '.') {
           address++;
           if ((count++)==15) {
-            printf("\r\n--> 0x%04X  0x%02X",address, mem[address]);
+            printf("\r\n--> 0x%04X  0x%02X",address, read6502(address,0));
             count=0;
           } else {
-            printf(" 0x%02X",mem[address]);
+            printf(" 0x%02X",read6502(address,0));
           }
 
           if (use_stdin) {
@@ -396,9 +495,11 @@ int main(int argc, char **argv)
           } else {
             printf(" ");
           }
-          if (mark_rom)
+          rom_map[address>>8]=0; //deposit writes trough ROM ;-)
+          write6502(address, 0, data);
+          if (mark_rom) 
             rom_map[address>>8]=1;
-          mem[address++]=data;
+          address++;
         }
         if (err<0){
           printf(" ????\r\n");
@@ -422,8 +523,7 @@ int main(int argc, char **argv)
       if ((err=getDouble(&address)) > 0){
         printf(" PROT PAGE 0x%02X\r\n",address>>8);
         rom_map[address>>8]=1;
-      }
-      else {        
+      } else {        
         printf(" ????\r\n");
         if (!use_stdin) {
           printf("\r\nERROR in line %i\r\n",line);
@@ -516,6 +616,39 @@ loop:
         goto loop;
 
       printf("\r\n CPU RESET...\r\n");
+    }
+    // HARDWARE (load .so with hardware plugins)
+    if (i=='h') {
+
+      printf(" ");
+
+      //get the address
+      uint16_t address = 0;
+      int err=0;
+      
+      if ((err=getDouble(&address)) > 0){
+        printf(" ");
+        if ((err=getBuffer(data_buffer)) > 0){
+          printf("\r\n<-- 0x%04X %s \r\n", address, data_buffer);
+        } else {
+          printf(" ????\r\n");
+          if (!use_stdin) {
+            printf("\r\nERROR in line %i\r\n",line);
+            exit(1);
+          }
+        }
+      } else {
+        printf(" ????\r\n");
+        if (!use_stdin) {
+          printf("\r\nERROR in line %i\r\n",line);
+          exit(1);
+        }
+      }
+
+      if (err > 0) {
+        // load
+        loadLib(data_buffer,address);
+      }
     }
   }
 }

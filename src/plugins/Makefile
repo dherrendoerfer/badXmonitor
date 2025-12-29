@@ -5,8 +5,8 @@ CC = gcc
 CFLAGS = -O3 -march=native -funroll-loops -Wall -I.. 
 
 all:
-	$(CC) $(CFLAGS) -c -o bad6502.o bad6502.c #-DSTEPDEBUG
-	$(CC) $(CFLAGS) -o monitor monitor.c bad6502.o -ldl -D FAST
+	$(CC) $(CFLAGS) -c -o fb_basic.o fb_basic.c 
+	$(CC) $(CFLAGS) -fPIC -shared -o fb_basic.so fb_basic.o 
 
 clean:
-	rm -f *.o monitor
+	rm -f *.o *.so
