@@ -19,7 +19,9 @@
 uint8_t mem[0x10000];
 uint8_t rom_map[0x100];
 void *io_map_read[0x1000];
-void* io_map_write[0x1000];
+void *io_map_write[0x1000];
+
+uint8_t interrupt = 0;
 
 // plugins
 void *plugins[32]; 
@@ -100,12 +102,12 @@ int loadLib(char* libname, uint16_t base_address)
 
   void *handle;
   const char* (*name)(void);
-  void (*mon_init)(uint16_t, void*);
+  void (*mon_init)(uint16_t, void*, uint8_t*);
   int (*mon_banks)();
   int (*mon_tick)();
   uint8_t (*mon_read)(uint16_t);
   void (*mon_write)(uint16_t, uint8_t);
-  void (*mon_do_tick)(uint8_t);
+  uint8_t (*mon_do_tick)(uint8_t);
   char *error;
 
   handle = dlopen (libname, RTLD_LAZY);
@@ -127,7 +129,7 @@ int loadLib(char* libname, uint16_t base_address)
       fputs(error, stderr);
       exit(1);
   }
-  (*mon_init) (base_address, mem);
+  (*mon_init) (base_address, mem, &interrupt);
 
   // get the number of mem banks to register
   mon_banks = dlsym(handle, "mon_banks");
@@ -364,7 +366,6 @@ int getDouble(uint16_t *address)
   return valid;
 }
 
-
 // Main prog
 int main(int argc, char **argv)
 {
@@ -382,6 +383,8 @@ int main(int argc, char **argv)
   setbuf(stdout, NULL);
   
   int line=1;
+  
+  uint8_t int_before_step = interrupt;
 
   while (1==1) {
     int i=0;
@@ -460,7 +463,6 @@ int main(int argc, char **argv)
         printf("\r\n");
       }
     }
-
 
     // DEPOSIT
     if (i=='d' || i=='f'){
@@ -606,14 +608,19 @@ int main(int argc, char **argv)
       }
 
 loop:  
+      int_before_step = interrupt;
       step6502();
       
+      if (interrupt != int_before_step)
+        irq6502(interrupt);
+
       #ifndef FAST
       usleep(100000);
       #endif
 
       if (bus_addr != 0xfffc)
         goto loop;
+//^^^ loop ///
 
       printf("\r\n CPU RESET...\r\n");
     }
