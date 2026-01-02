@@ -1,0 +1,4 @@
+#!../src/monitor
+l 1000 ./helloworld.bin
+d FFFE 00 10
+g

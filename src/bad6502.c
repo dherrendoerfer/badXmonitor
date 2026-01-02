@@ -277,6 +277,8 @@ void tick6502()
     vtmp=*gpio_o_set; //read back to flush to memory
   #endif
 
+//usleep(1000); // For the LED board
+
   // decode addr and !RW from the bus
   bus_rw = tmp & 1<<24;
   bus_addr = (tmp >> 8) & 0xFFFF;

@@ -214,7 +214,7 @@ void write6502(uint16_t address, uint8_t bank, uint8_t data)
   }
 
   if (io_map_write[address>>4] != 0) {
-    void (*io_write)(uint16_t, uint8_t) = io_map_write[address>>4] ;
+    void (*io_write)(uint16_t, uint8_t) = io_map_write[address>>4];
     (*io_write)(address, data);
     return;
   }
@@ -614,6 +614,7 @@ loop:
       if (interrupt != int_before_step)
         irq6502(interrupt);
 
+//      usleep(100000);
       #ifndef FAST
       usleep(100000);
       #endif

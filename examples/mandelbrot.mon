@@ -1,0 +1,5 @@
+#!../src/monitor
+h FE00 /root/badXmonitor/src/plugins/fb_basic.so
+l 1000 ./mandelbrot.bin
+d FFFE 00 10
+g
