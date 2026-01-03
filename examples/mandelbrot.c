@@ -28,9 +28,6 @@ int maxiterate_ = MAXITERATE;
 static char msg[]="\r\nRunning mandelbrot\r\n"
                   "\r\nPress CNTL-X to exit.\r\n";
 
-
-//char msg[45];
-
 int iterate(nint_t real0, nint_t imag0)
 {
    nint_t realq, imagq, real, imag;
@@ -76,13 +73,10 @@ void mand_calc(nint_t realmin, nint_t imagmin, nint_t realmax, nint_t imagmax, i
       col = iterate(real0, imag0);
       // fill all pixels which are below int resolution with the same iteration value
       for (_y = 0; y < vres && deltaimag * _y < vres; _y++, y++) {
-	      //col=(col & 0x3f) >> 1;
-	      //fb_pointRGB(x,y,col,col,col);
         *(unsigned int*)0xFE02=y;
         *(unsigned char*)0xFE04=col+16;
       }
     }
-//    *(unsigned char*)0xFF0A=0;
     col=*((char*)0xFF01);
   }
 }
