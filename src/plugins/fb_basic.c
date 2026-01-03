@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <strings.h>
 #include <unistd.h>
 
 #include <linux/fb.h>
@@ -9,9 +10,12 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 
+#define CHAR_CURSOR_HIDE "\033[?25l"
+#define CHAR_CURSOR_SHOW "\033[?25h"
 
 static uint8_t *mem;
 static uint8_t *interrupt;
+static uint16_t base_address;
 
 uint16_t palette[] = {0x0000,0x7bcf,0x0008,0x73ca,0x610c,0x2b00,0x5000,0x3b8e,0x2a0d,0x0106,0x39cf,0x18c3,0x39c7,0x33ca,0x7a00,0x5acb,
                       0x0000,0x0841,0x1082,0x18c3,0x2104,0x2945,0x3186,0x39c7,0x4208,0x4a49,0x528a,0x5acb,0x630c,0x6b4d,0x738e,0x7bcf,
@@ -51,6 +55,14 @@ int fb_init()
                        fbfd,
                        0);
          if (fbbuffer != MAP_FAILED) {
+            // Try to hide the cursor on the FB
+            int consolefd;
+            consolefd=open("/dev/console",O_RDWR);
+            if (consolefd > 0) {
+              write(consolefd,CHAR_CURSOR_HIDE,6);
+              close(consolefd);
+            }
+
             return 0;   /* Indicate success */
          }
          else {
@@ -92,6 +104,7 @@ void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)
   // Do all the fancy stuff here, like start threads, connect to hardware and so on.
   mem = mon_mem;
   interrupt = mon_interrupt;
+  base_address = base_addr;
 
   if (fb_init()) {
     printf("\r\nFremebuffer init failed.!!\r\n");
@@ -114,6 +127,18 @@ int mon_banks()
 // mem read
 uint8_t mon_read(uint16_t address)
 {
+    switch (address & 0xF)
+    {
+    case 0x00:
+        return screen_info.xres & 0xFF;
+    case 0x01:
+        return (screen_info.xres>>8) & 0xFF;
+    case 0x02:
+        return screen_info.yres & 0xFF;
+    case 0x03:
+        return (screen_info.yres>>8) & 0xFF;
+    }
+
   return mem[address];
 }
 
@@ -121,10 +146,18 @@ uint8_t mon_read(uint16_t address)
 void mon_write(uint16_t address, uint8_t data)
 {
   if ((address & 0x0f) == 4) {
-    uint16_t x = ( mem[0xFE01]<<8) | mem[0xFE00];
-    uint16_t y = ( mem[0xFE03]<<8) | mem[0xFE02];
+    uint16_t x = ( mem[base_address+1]<<8) | mem[base_address];
+    uint16_t y = ( mem[base_address+3]<<8) | mem[base_address+2];
     _point(x,y,data);
   } 
+  else if ((address & 0x0f) == 5) { 
+    switch (data)
+    {
+      case 0x01: {
+        bzero(fbbuffer, fbbuflen);
+      }
+    }
+  }
 
   mem[address] = data;
 }
