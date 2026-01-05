@@ -1,0 +1,178 @@
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <strings.h>
+#include <unistd.h>
+
+#include <linux/fb.h>
+#include <sys/types.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+
+#define VID_MEMSTART 0x1000
+#define CHAR_ROMSTART 0x8000
+
+#define CHAR_CURSOR_HIDE "\033[?25l"
+#define CHAR_CURSOR_SHOW "\033[?25h"
+
+static uint8_t *mem;
+static uint8_t *interrupt;
+static uint16_t base_address;
+
+uint16_t palette[] = {0x0000,0x7bcf,0x0008,0x73ca,0x610c,0x2b00,0x5000,0x3b8e,0x2a0d,0x0106,0x39cf,0x18c3,0x39c7,0x33ca,0x7a00,0x5acb,
+                      0x0000,0x0841,0x1082,0x18c3,0x2104,0x2945,0x3186,0x39c7,0x4208,0x4a49,0x528a,0x5acb,0x630c,0x6b4d,0x738e,0x7bcf,
+                      0x0842,0x18c4,0x2106,0x3188,0x420a,0x4a4c,0x5acf,0x0842,0x1084,0x18c6,0x2108,0x294a,0x318c,0x39cf,0x0002,0x0844,
+                      0x0846,0x1088,0x108a,0x18cc,0x18cf,0x0002,0x0004,0x0006,0x0008,0x000a,0x000c,0x000f,0x0882,0x1904,0x2186,0x3208,
+                      0x428a,0x4b0c,0x5b8f,0x0842,0x10c4,0x1946,0x21c8,0x2a4a,0x32cc,0x3b4f,0x0042,0x08c4,0x0946,0x1188,0x120a,0x1a8c,
+                      0x1b0f,0x0042,0x00c4,0x0106,0x0188,0x020a,0x024c,0x02cf,0x0881,0x1903,0x2185,0x3207,0x4289,0x4b0b,0x5bcd,0x0881,
+                      0x1103,0x1984,0x2206,0x2a88,0x3309,0x3bcb,0x0081,0x0902,0x0984,0x1205,0x1286,0x1b08,0x1bc9,0x0081,0x0102,0x0183,
+                      0x0204,0x0285,0x0306,0x03c7,0x0881,0x1903,0x2984,0x3206,0x4288,0x5309,0x63cb,0x0881,0x1102,0x2183,0x2a04,0x3285,
+                      0x4306,0x4bc7,0x0080,0x0901,0x1181,0x1a02,0x2282,0x2b03,0x33c3,0x0080,0x0900,0x0980,0x1200,0x1280,0x1b00,0x1bc0,
+                      0x1081,0x2103,0x3184,0x4206,0x5288,0x6309,0x7bcb,0x1081,0x2102,0x3183,0x4204,0x5285,0x6306,0x7bc7,0x1080,0x2101,
+                      0x3181,0x4202,0x5282,0x6303,0x7bc3,0x1080,0x2100,0x3180,0x4200,0x5280,0x6300,0x7bc0,0x1041,0x20c3,0x3144,0x4186,
+                      0x5208,0x6289,0x7b0b,0x1041,0x2082,0x3103,0x4144,0x5185,0x6206,0x7a47,0x1000,0x2041,0x3081,0x40c2,0x5102,0x6143,
+                      0x7983,0x1000,0x2040,0x3040,0x4080,0x5080,0x60c0,0x78c0,0x1041,0x20c3,0x3105,0x4187,0x5209,0x624b,0x7acd,0x1041,
+                      0x2083,0x30c4,0x4106,0x5148,0x6189,0x79cb,0x1001,0x2042,0x3044,0x4085,0x5086,0x60c8,0x78c9,0x1001,0x2002,0x3003,
+                      0x4004,0x5005,0x6006,0x7807,0x1042,0x20c4,0x3106,0x4188,0x520a,0x624c,0x72cf,0x0842,0x1884,0x28c6,0x3908,0x494a,
+                      0x598c,0x69cf,0x0802,0x1844,0x2846,0x3088,0x408a,0x50cc,0x60cf,0x0802,0x1804,0x2006,0x3008,0x400a,0x480c};
+
+struct fb_var_screeninfo screen_info;
+struct fb_fix_screeninfo fixed_info;
+int fbfd = -1;
+char *fbbuffer = NULL;
+size_t fbbuflen;
+
+uint16_t counter = 0;
+
+int fb_init()
+{
+   fbfd = open("/dev/fb0", O_RDWR);
+   if (fbfd >= 0)
+   {
+      if (!ioctl(fbfd, FBIOGET_VSCREENINFO, &screen_info) &&
+          !ioctl(fbfd, FBIOGET_FSCREENINFO, &fixed_info)) {
+         fbbuflen = screen_info.yres_virtual * fixed_info.line_length;
+         fbbuffer = mmap(NULL,
+                       fbbuflen,
+                       PROT_READ|PROT_WRITE,
+                       MAP_SHARED,
+                       fbfd,
+                       0);
+         if (fbbuffer != MAP_FAILED) {
+            // Try to hide the cursor on the FB
+            int consolefd;
+            consolefd=open("/dev/console",O_RDWR);
+            if (consolefd > 0) {
+              write(consolefd,CHAR_CURSOR_HIDE,6);
+              close(consolefd);
+            }
+
+            mem[VID_MEMSTART] = 55; 
+
+            return 0;   /* Indicate success */
+         }
+         else {
+            fprintf(stderr,"mmap failed");
+         }
+      }
+        else {
+            fprintf(stderr,"ioctl failed");
+        }
+    }
+    else {
+        fprintf(stderr,"open failed");
+    }
+    if (fbbuffer && fbbuffer != MAP_FAILED)
+      munmap(fbbuffer, fbbuflen);
+    if (fbfd >= 0)
+      close(fbfd);
+    
+    return 1;
+}
+
+static inline void _point(uint16_t x, uint16_t y, uint8_t col)
+{
+    uint16_t pixel = palette[col];
+
+    uint32_t location = x*screen_info.bits_per_pixel/8 + 
+                                y*fixed_info.line_length;
+    *((uint16_t*) (fbbuffer + location)) = pixel;
+}
+
+// Basic info
+const char* name()
+{
+    return "basic framebuffer";
+}
+
+void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)
+{
+  // Do all the fancy stuff here, like start threads, connect to hardware and so on.
+  mem = mon_mem;
+  interrupt = mon_interrupt;
+  base_address = base_addr;
+
+  if (fb_init()) {
+    printf("\r\nFremebuffer init failed.!!\r\n");
+    exit(1);
+  }
+}
+
+int mon_tick()
+{
+  return 1;
+}
+
+int mon_banks()
+{
+  return 1;
+}
+
+// The real IO
+//
+// mem read
+uint8_t mon_read(uint16_t address)
+{
+  return mem[address];
+}
+
+// mem write
+void mon_write(uint16_t address, uint8_t data)
+{
+  mem[address] = data;
+}
+
+uint8_t mon_do_tick(uint8_t ticks)
+{
+  uint16_t g,h,i,j;
+  uint8_t buf, c_rom;
+
+  if ( counter++ != 0)
+    return *interrupt;
+
+  for (g=0; g<23; g++) {
+    for (h=0; h<22; h++) {
+      //
+      buf = mem[VID_MEMSTART+(22*g)+h];
+
+      for (i=0; i<8; i++) {
+        c_rom=mem[CHAR_ROMSTART+(8*buf)+i];
+       
+        for (j=0; j<8; j++) {
+	      if (c_rom&(1<<j)) {
+	        //setpixel
+//	        _point(((10+g*8)+i)*SCREEN_WIDTH +70+(h*8)+8-j,0x00);
+            _point( 70+(h*8)+8-j,10+(g*8)+i,0x00);
+	      }
+	      else {
+            //clearpixel 
+            _point( 70+(h*8)+8-j,10+(g*8)+i,0x01);
+//	        _point(((10+g*8)+i)*SCREEN_WIDTH+70+(h*8)+8-j,0x01);
+	      }
+	    }
+      }
+    }
+  }
+  return *interrupt;
+}

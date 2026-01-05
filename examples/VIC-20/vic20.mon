@@ -1,0 +1,8 @@
+#!../../src/monitor
+r 8000 ./characters.901460-03.bin
+r C000 ./basic.901486-01.bin
+r E000 ./kernal.901486-06.bin
+h 9000 /root/badXmonitor/examples/VIC-20/vic.so
+h 9110 /root/badXmonitor/examples/VIC-20/via1.so
+h 9120 /root/badXmonitor/examples/VIC-20/via2.so
+g

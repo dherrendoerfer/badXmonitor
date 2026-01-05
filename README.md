@@ -23,3 +23,9 @@ data: typed as 0 to ff, end with a space
 Lines may be extended by ending a line with \  
 Data may be separated with ',' and prepended with 0x  
 Comments are allowed  
+
+## Plugins
+Plugins (shared libraries) can be used to provide virtual
+hardware.  
+Each library can reserve an IO area and the monitor will
+redirect access to the plugin.  

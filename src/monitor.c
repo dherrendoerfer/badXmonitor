@@ -610,6 +610,13 @@ int main(int argc, char **argv)
 loop:  
       int_before_step = interrupt;
       step6502();
+
+      // hardware ticks
+      for (int i=0;i<plugin_tick_num;i++) {
+        uint8_t (*mon_do_tick)(uint8_t);
+        mon_do_tick = plugins_tick[i];
+        interrupt |= (*mon_do_tick)(1);    
+      }
       
       if (interrupt != int_before_step)
         irq6502(interrupt);
