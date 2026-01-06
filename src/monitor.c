@@ -25,6 +25,10 @@ uint8_t rom_map[0x100];
 void *io_map_read[0x1000];
 void *io_map_write[0x1000];
 
+void *trap_map_read[0x10000];
+void *trap_map_write[0x10000];
+//uint trap_map_length[0x10000];
+
 uint8_t interrupt = 0;
 
 // plugins
@@ -115,7 +119,7 @@ int getch_from_file(int file)
     }
 }
 
-int loadLib(char* libname, uint16_t base_address)
+int load_hw_lib(char* libname, uint16_t base_address)
 {
 
   void *handle;
@@ -173,7 +177,7 @@ int loadLib(char* libname, uint16_t base_address)
     }
   }
 
-    // get the read and write functions
+  // get the read and write functions
   mon_read = dlsym(handle, "mon_read");
   if ((error = dlerror()) != NULL)  {
       fputs(error, stderr);
@@ -203,6 +207,68 @@ int loadLib(char* libname, uint16_t base_address)
   return 0;
 }
 
+int load_trap_lib(char* libname, uint16_t base_address)
+{
+  void *handle;
+  const char* (*name)(void);
+  void (*mon_init)(uint16_t, void*, uint8_t*);
+  uint8_t (*mon_read)(uint16_t);
+  void (*mon_write)(uint16_t, uint8_t);
+  uint8_t (*mon_trap_length)();
+  char *error;
+
+  handle = dlopen (libname, RTLD_LAZY);
+  if (!handle) {
+      fputs (dlerror(), stderr);
+      exit(1);
+  }
+  // get the plugin name
+  name = dlsym(handle, "name");
+  if ((error = dlerror()) != NULL)  {
+      fputs(error, stderr);
+      exit(1);
+  }
+  printf("\r\nloaded: %s at base_address: 0x%04X\r\n",name(),base_address);
+
+  // register the plugin address and memory
+  mon_init = dlsym(handle, "mon_init");
+  if ((error = dlerror()) != NULL)  {
+      fputs(error, stderr);
+      exit(1);
+  }
+  (*mon_init) (base_address, mem, &interrupt);
+
+
+    // get the read and write functions
+  mon_read = dlsym(handle, "mon_read");
+  if ((error = dlerror()) != NULL)  {
+      fputs(error, stderr);
+      exit(1);
+  }
+
+  // see if this plugin needs a tick()
+  mon_write = dlsym(handle, "mon_write");
+  if ((error = dlerror()) != NULL)  {
+      fputs(error, stderr);
+      exit(1);
+  }
+
+  mon_trap_length = dlsym(handle, "mon_trap_length");
+  if ((error = dlerror()) != NULL)  {
+      fputs(error, stderr);
+      exit(1);
+  }
+
+  for (int i=0; i<(*mon_trap_length)(); i++) {
+    trap_map_read[base_address+i] = mon_read; 
+    trap_map_write[base_address+i] = mon_write; 
+  }
+
+  plugins[plugin_num++]=handle;
+
+  return 0;
+}
+
 // mem read
 uint8_t read6502(uint16_t address, uint8_t bank)
 {  
@@ -215,6 +281,11 @@ uint8_t read6502(uint16_t address, uint8_t bank)
 
   if (io_map_read[address>>4] != 0) {
     uint8_t (*io_read)(uint16_t) = io_map_read[address>>4] ;
+    return (*io_read)(address);
+  }
+
+  if (trap_map_read[address] != 0) {
+    uint8_t (*io_read)(uint16_t) = trap_map_read[address] ;
     return (*io_read)(address);
   }
 
@@ -236,6 +307,13 @@ void write6502(uint16_t address, uint8_t bank, uint8_t data)
     (*io_write)(address, data);
     return;
   }
+
+  if (trap_map_write[address] != 0) {
+    void (*io_write)(uint16_t, uint8_t) = trap_map_write[address>>4];
+    (*io_write)(address, data);
+    return;
+  }
+
 
   if (rom_map[address>>8] == 1) //simulated ROM 
     return;
@@ -680,8 +758,42 @@ loop:
 
       if (err > 0) {
         // load
-        loadLib(data_buffer,address);
+        load_hw_lib(data_buffer,address);
       }
     }
+        // TRAP (load .so with trap plugins)
+    if (i=='t') {
+
+      printf(" ");
+
+      //get the address
+      uint16_t address = 0;
+      int err=0;
+      
+      if ((err=getDouble(&address)) > 0){
+        printf(" ");
+        if ((err=getBuffer(data_buffer)) > 0){
+          printf("\r\n<-- 0x%04X %s \r\n", address, data_buffer);
+        } else {
+          printf(" ????\r\n");
+          if (!use_stdin) {
+            printf("\r\nERROR in line %i\r\n",line);
+            exit(1);
+          }
+        }
+      } else {
+        printf(" ????\r\n");
+        if (!use_stdin) {
+          printf("\r\nERROR in line %i\r\n",line);
+          exit(1);
+        }
+      }
+
+      if (err > 0) {
+        // load
+        load_trap_lib(data_buffer,address);
+      }
+    }
+
   }
 }
