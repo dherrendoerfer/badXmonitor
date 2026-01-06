@@ -5,11 +5,15 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/kd.h>
+#include <linux/keyboard.h>
 #include <time.h>
 #include <unistd.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/select.h>
 #include <termios.h>
 
@@ -38,10 +42,17 @@ int infile=0;
 
 // terminal settings
 struct termios previous_termios;
+int old_kbdmode;
 
 void reset_terminal_mode()
 {
+    printf("\r\nBYE\r\n");
+    ioctl(0, KDSKBMODE, old_kbdmode);
     tcsetattr(0, TCSANOW, &previous_termios);
+}
+
+void signal_handler(__attribute__((unused)) const int signum) {
+    exit(3);
 }
 
 void set_conio_terminal_mode()
@@ -52,8 +63,15 @@ void set_conio_terminal_mode()
     tcgetattr(0, &previous_termios);
     memcpy(&new_termios, &previous_termios, sizeof(new_termios));
 
+    /* remember old keyboard mode */
+ 	  if (ioctl(0, KDGKBMODE, &old_kbdmode)) {
+        old_kbdmode=K_XLATE; // probably on a terminal
+    }
+
     /* register cleanup handler, and set the new terminal mode */
-    atexit(reset_terminal_mode);
+    atexit(&reset_terminal_mode);
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT, signal_handler);
     cfmakeraw(&new_termios);
     tcsetattr(0, TCSANOW, &new_termios);
 }

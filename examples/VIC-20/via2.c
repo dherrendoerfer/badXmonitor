@@ -10,12 +10,18 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 
+#include <sys/ioctl.h>
+#include <linux/kd.h>
+#include <linux/keyboard.h>
+
 static uint8_t *mem;
 static uint8_t *interrupt;
 static uint16_t base_address;
  
 #include <stdio.h>
 #include "via.h"
+
+#include "keymap.h"
 
 #define true 1
 #define false 0
@@ -66,6 +72,33 @@ int           via2__tick;
 #if DEBUG6522
 static const char * VIAREG2STR[] = { "ORB_IRB", "ORA_IRA", "DDRB", "DDRA", "T1_C_LO", "T1_C_HI", "T1_L_LO", "T1_L_HI", "T2_C_LO", "T2_C_HI", "SR", "ACR", "PCR", "IFR", "IER", "ORA_IRA_NH" };
 #endif
+
+uint16_t via2_kb_cycles = 0;
+char key_down = 0;
+
+// KEYBOARD HANDLER
+
+int kbhit()
+{
+    struct timeval tv = { 0L, 0L };
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(0, &fds);
+    return select(1, &fds, NULL, NULL, &tv) > 0;
+}
+
+int getch()
+{
+    int r;
+    unsigned char c;
+    if ((r = read(0, &c, sizeof(c))) < 0) {
+        return r;
+    } else {
+        return c;
+    }
+}
+
+// VIA
 
 void via2_reset()
 {
@@ -462,6 +495,7 @@ const char* name()
     return "Commodore VIC-20 VIA 2";
 }
 
+
 void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)
 {
   // Do all the fancy stuff here, like start threads, connect to hardware and so on.
@@ -469,7 +503,33 @@ void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)
   interrupt = mon_interrupt;
   base_address = base_addr;
 
-  via2_reset();
+  int kbmode;
+  char *m;
+
+//    ioctl(0, KDSKBMODE, K_RAW);
+    if (ioctl(0, KDGKBMODE, &kbmode)) {
+		kbmode=K_XLATE;  //probably on a terminal
+	}
+    switch (kbmode) {
+            case K_RAW:
+                m = "RAW";
+                break;
+            case K_XLATE:
+                m = "XLATE";
+                break;
+            case K_MEDIUMRAW:
+                m = "MEDIUMRAW";
+                break;
+            case K_UNICODE:
+                m = "UNICODE";
+                break;
+            default:
+                m = "?UNKNOWN?";
+                break;
+        }
+        printf("kb mode is %s\n", m);
+
+     via2_reset();
 }
 
 int mon_tick()
@@ -491,22 +551,65 @@ uint8_t mon_read(uint16_t address)
     return via2_readReg(address);
 }
 
+
 // mem write
 void mon_write(uint16_t address, uint8_t data)
 {
   //mem[address] = data;
   address = address & 0x0f;
   via2_writeReg(address, data);
+
+  int shift=0;
+
+  if (address == 0) {
+    if (key_down != 0 && (key_to_scancode_xlate[(uint8_t)key_down] != 0xFF)) {
+        uint8_t keyrow = 1 << (key_to_scancode_xlate[(uint8_t)key_down] & 0x7);
+//        printf("%x,%x\r\n",keyrow,(uint8_t)~data);
+        if ( (key_to_scancode_xlate[(uint8_t)key_down] & 0x80)) {
+            // shift is 13
+            if ((~data&(1<<3)) == (1<<3)) {
+                shift=(1<<1);
+                via2_setPA(~shift);
+//                printf("shift hit: %X\r\n",shift);
+            }
+        }
+        
+        if ((~data&keyrow) == keyrow){
+            uint8_t res = (1 << ((key_to_scancode_xlate[(uint8_t)key_down] & 0x70) >> 4));
+            via2_setPA(~(res|shift));
+//            printf("hit: %X\r\n",res|shift);
+        }else{
+            via2_setPA(~shift);
+        }
+    } else {
+        via2_setPA(0xff);
+    }
+  }
+
   return;
 }
 
 uint8_t mon_do_tick(uint8_t ticks)
 {
+  via2_kb_cycles += ticks;
+
   if (via2_tick(ticks))
     *interrupt = 1;
   else 
     *interrupt = 0;
 
-  
+  // Add delay
+  if (via2_kb_cycles > 25000) {
+    if (kbhit()) {
+        via2_kb_cycles = 0;
+        key_down=getch();
+        //printf("%c=%X\r\n",key_down,key_down);
+        if (key_down == 0x18)
+            exit(1);
+    } else {
+        key_down = 0;
+    }
+
+  }
   return *interrupt;
 }
