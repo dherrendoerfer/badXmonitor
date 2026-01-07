@@ -51,9 +51,14 @@ static inline void _point(uint16_t x, uint16_t y, uint8_t col)
 {
     uint16_t pixel = palette[col];
 
+    x=x<<1; y=y<<1;
+
     uint32_t location = x*screen_info.bits_per_pixel/8 + 
                                 y*fixed_info.line_length;
     *((uint16_t*) (fbbuffer + location)) = pixel;
+    *((uint16_t*) (fbbuffer + location+screen_info.bits_per_pixel/8)) = pixel;
+    *((uint16_t*) (fbbuffer + location+fixed_info.line_length)) = pixel;
+    *((uint16_t*) (fbbuffer + location+fixed_info.line_length+screen_info.bits_per_pixel/8)) = pixel;
 }
 
 static void *display_thread()
