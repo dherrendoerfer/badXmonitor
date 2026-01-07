@@ -1,4 +1,6 @@
+#include <dlfcn.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -74,7 +76,9 @@ static const char * VIAREG2STR[] = { "ORB_IRB", "ORA_IRA", "DDRB", "DDRA", "T1_C
 #endif
 
 uint16_t via2_kb_cycles = 0;
-char key_down = 0;
+volatile char key_down = 0;
+
+pthread_t keyboardThread;
 
 // KEYBOARD HANDLER
 
@@ -97,6 +101,24 @@ int getch()
         return c;
     }
 }
+
+// keyboard read thread
+static void *kb_read_thread()
+{
+//   int nSig;
+
+    while (1) {
+      if (kbhit()) {
+          key_down=getch();
+          if (key_down == 0x18)
+              exit(1);
+      } else {
+          key_down = 0;
+      }
+      usleep(100000);
+    }
+}
+
 
 // VIA
 
@@ -492,7 +514,7 @@ bool via2_tick(int cycles)
 // Basic info
 const char* name()
 {
-    return "Commodore VIC-20 VIA 2";
+    return "Commodore VIC-20 VIA 2 with keyboard";
 }
 
 
@@ -527,7 +549,30 @@ void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)
                 m = "?UNKNOWN?";
                 break;
         }
-        printf("kb mode is %s\n", m);
+        printf("kb mode is %s\r\n", m);
+
+  /*
+    void *handle;
+
+    handle = dlopen ("libpthread.so", RTLD_NOW);
+    if (!handle) {
+        fputs (dlerror(), stderr);
+        exit(1);
+    }
+
+    int (*pthread_create)(pthread_t*, const pthread_attr_t*, void*, void*);
+
+    pthread_create = dlsym(handle, "pthread_create");
+    if (dlerror() != NULL)  {
+        exit(1);
+    }
+*/
+    if (pthread_create(&keyboardThread, NULL, kb_read_thread, NULL)) {
+        printf("kb thread create failed\n");
+        exit(1);
+    }
+
+
 
      via2_reset();
 }
@@ -550,7 +595,6 @@ uint8_t mon_read(uint16_t address)
     address = address & 0x0f;
     return via2_readReg(address);
 }
-
 
 // mem write
 void mon_write(uint16_t address, uint8_t data)
@@ -598,18 +642,5 @@ uint8_t mon_do_tick(uint8_t ticks)
   else 
     *interrupt = 0;
 
-  // Add delay
-  if (via2_kb_cycles > 25000) {
-    if (kbhit()) {
-        via2_kb_cycles = 0;
-        key_down=getch();
-        //printf("%c=%X\r\n",key_down,key_down);
-        if (key_down == 0x18)
-            exit(1);
-    } else {
-        key_down = 0;
-    }
-
-  }
   return *interrupt;
 }

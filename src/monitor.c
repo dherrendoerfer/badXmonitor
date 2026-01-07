@@ -19,15 +19,25 @@
 
 #include "bad6502.h"
 
+#define IS_RAM(x)((x & 0xFC) == 0)
+#define IS_ROM_P0(x) (x & 0x04)
+#define IS_IO(x) (x & 0x20)
+#define IS_TRAP(x) (x & 0x40)
+
+#define SET_ROM_P0(x) (x |= 0x04)
+#define SET_IO(x) (x |= 0x20)
+#define SET_TRAP(x) (x |= 0x40)
+
 // the ram
 uint8_t mem[0x10000];
-uint8_t rom_map[0x100];
+uint8_t mem_desc[0x10000];
+
+//uint8_t rom_map[0x100];
 void *io_map_read[0x1000];
 void *io_map_write[0x1000];
 
 void *trap_map_read[0x10000];
 void *trap_map_write[0x10000];
-//uint trap_map_length[0x10000];
 
 uint8_t interrupt = 0;
 
@@ -192,9 +202,10 @@ int load_hw_lib(char* libname, uint16_t base_address)
   }
 
   // finally register everything
-  for (int i=0; i<banks_to_register; i++) {
-    io_map_read[(base_address>>4)+i] = mon_read; 
-    io_map_write[(base_address>>4)+i] = mon_write; 
+  for (int i=0; i<banks_to_register*16; i++) {
+    SET_IO(mem_desc[base_address+i]);
+    io_map_read[((base_address+1)>>4)] = mon_read; 
+    io_map_write[((base_address+i)>>4)] = mon_write; 
   }
 
   if (register_tick == 1) {
@@ -260,6 +271,7 @@ int load_trap_lib(char* libname, uint16_t base_address)
   }
 
   for (int i=0; i<(*mon_trap_length)(); i++) {
+    SET_TRAP(mem_desc[base_address+i]);
     trap_map_read[base_address+i] = mon_read; 
     trap_map_write[base_address+i] = mon_write; 
   }
@@ -279,14 +291,17 @@ uint8_t read6502(uint16_t address, uint8_t bank)
     return getch();
   }
 
-  if (io_map_read[address>>4] != 0) {
+  if (IS_RAM(mem_desc[address]))
+    return mem[address];
+
+  if (IS_IO(mem_desc[address])) {
     uint8_t (*io_read)(uint16_t) = io_map_read[address>>4] ;
     return (*io_read)(address);
   }
 
-  if (trap_map_read[address] != 0) {
-    uint8_t (*io_read)(uint16_t) = trap_map_read[address] ;
-    return (*io_read)(address);
+  if (IS_TRAP(mem_desc[address])) {
+    uint8_t (*trap_read)(uint16_t) = trap_map_read[address] ;
+    return (*trap_read)(address);
   }
 
   return mem[address];
@@ -302,21 +317,27 @@ void write6502(uint16_t address, uint8_t bank, uint8_t data)
     return;
   }
 
-  if (io_map_write[address>>4] != 0) {
+  if (IS_RAM(mem_desc[address])) {
+    mem[address] = data;
+    return;
+  }
+
+  if (IS_ROM_P0(mem_desc[address])) //simulated ROM 
+    return;
+
+
+  if (IS_IO(mem_desc[address])) {
     void (*io_write)(uint16_t, uint8_t) = io_map_write[address>>4];
     (*io_write)(address, data);
     return;
   }
 
-  if (trap_map_write[address] != 0) {
-    void (*io_write)(uint16_t, uint8_t) = trap_map_write[address>>4];
-    (*io_write)(address, data);
+  if (IS_TRAP(mem_desc[address])) {
+    void (*trap_write)(uint16_t, uint8_t) = trap_map_write[address];
+    (*trap_write)(address, data);
     return;
   }
 
-
-  if (rom_map[address>>8] == 1) //simulated ROM 
-    return;
 
   //printf("X");
   mem[address] = data;
@@ -593,10 +614,9 @@ int main(int argc, char **argv)
           } else {
             printf(" ");
           }
-          rom_map[address>>8]=0; //deposit writes trough ROM ;-)
           write6502(address, 0, data);
           if (mark_rom) 
-            rom_map[address>>8]=1;
+            SET_ROM_P0(mem_desc[address]);
           address++;
         }
         if (err<0){
@@ -620,7 +640,8 @@ int main(int argc, char **argv)
       
       if ((err=getDouble(&address)) > 0){
         printf(" PROT PAGE 0x%02X\r\n",address>>8);
-        rom_map[address>>8]=1;
+        for (int i=0;i<0xff;i++)
+          SET_ROM_P0(mem_desc[(address & 0xff00)+i]);
       } else {        
         printf(" ????\r\n");
         if (!use_stdin) {
@@ -669,9 +690,9 @@ int main(int argc, char **argv)
         fd = open(data_buffer, O_RDONLY);
 
         while ((read(fd,&data,1))>0) {
-          if (mark_rom)
-            rom_map[address>>8]=1;
           mem[address++]=data;
+          if (mark_rom)
+            SET_ROM_P0(mem_desc[address]);
         }
 
         printf("read until 0x%04X\r\n",(address-1));

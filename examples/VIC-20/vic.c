@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -44,6 +45,50 @@ char *fbbuffer = NULL;
 size_t fbbuflen;
 
 uint16_t counter = 0;
+pthread_t videoThread;
+
+static inline void _point(uint16_t x, uint16_t y, uint8_t col)
+{
+    uint16_t pixel = palette[col];
+
+    uint32_t location = x*screen_info.bits_per_pixel/8 + 
+                                y*fixed_info.line_length;
+    *((uint16_t*) (fbbuffer + location)) = pixel;
+}
+
+static void *display_thread()
+{
+  uint16_t g,h,i,j;
+  uint8_t buf, c_rom;
+
+  while (1) {
+    for (g=0; g<23; g++) {
+      for (h=0; h<22; h++) {
+        //
+        buf = mem[VID_MEMSTART+(22*g)+h];
+
+        for (i=0; i<8; i++) {
+          c_rom=mem[CHAR_ROMSTART+(8*buf)+i];
+        
+          for (j=0; j<8; j++) {
+            if (c_rom&(1<<j)) {
+              //setpixel
+    //	        _point(((10+g*8)+i)*SCREEN_WIDTH +70+(h*8)+8-j,0x00);
+                _point( 70+(h*8)+8-j,10+(g*8)+i,0x00);
+            }
+            else {
+                //clearpixel 
+                _point( 70+(h*8)+8-j,10+(g*8)+i,0x01);
+    //	        _point(((10+g*8)+i)*SCREEN_WIDTH+70+(h*8)+8-j,0x01);
+            }
+          }
+        }
+      }
+    }
+
+    usleep(25000);
+  }
+}
 
 int fb_init()
 {
@@ -91,14 +136,6 @@ int fb_init()
     return 1;
 }
 
-static inline void _point(uint16_t x, uint16_t y, uint8_t col)
-{
-    uint16_t pixel = palette[col];
-
-    uint32_t location = x*screen_info.bits_per_pixel/8 + 
-                                y*fixed_info.line_length;
-    *((uint16_t*) (fbbuffer + location)) = pixel;
-}
 
 // Basic info
 const char* name()
@@ -117,6 +154,12 @@ void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)
     printf("\r\nFremebuffer init failed.!!\r\n");
     exit(1);
   }
+
+  if (pthread_create(&videoThread, NULL, display_thread, NULL)) {
+      printf("kb thread create failed\n");
+      exit(1);
+  }
+
 }
 
 int mon_tick()
@@ -145,34 +188,5 @@ void mon_write(uint16_t address, uint8_t data)
 
 uint8_t mon_do_tick(uint8_t ticks)
 {
-  uint16_t g,h,i,j;
-  uint8_t buf, c_rom;
-
-  if ( counter++ != 0)
-    return *interrupt;
-
-  for (g=0; g<23; g++) {
-    for (h=0; h<22; h++) {
-      //
-      buf = mem[VID_MEMSTART+(22*g)+h];
-
-      for (i=0; i<8; i++) {
-        c_rom=mem[CHAR_ROMSTART+(8*buf)+i];
-       
-        for (j=0; j<8; j++) {
-	      if (c_rom&(1<<j)) {
-	        //setpixel
-//	        _point(((10+g*8)+i)*SCREEN_WIDTH +70+(h*8)+8-j,0x00);
-            _point( 70+(h*8)+8-j,10+(g*8)+i,0x00);
-	      }
-	      else {
-            //clearpixel 
-            _point( 70+(h*8)+8-j,10+(g*8)+i,0x01);
-//	        _point(((10+g*8)+i)*SCREEN_WIDTH+70+(h*8)+8-j,0x01);
-	      }
-	    }
-      }
-    }
-  }
   return *interrupt;
 }

@@ -12,11 +12,11 @@ via1:
 
 via2:
 	$(CC) $(CFLAGS) -c -o via2.o via2.c 
-	$(CC) $(CFLAGS) -fPIC -shared -o via2.so via2.o 
+	$(CC) $(CFLAGS) via2.o -fPIC -shared -lpthread -o via2.so
 
 vic:
 	$(CC) $(CFLAGS) -c -o vic.o vic.c 
-	$(CC) $(CFLAGS) -fPIC -shared -o vic.so vic.o 
+	$(CC) $(CFLAGS) vic.o -fPIC -shared -lpthread -o vic.so  
 
 load:
 	$(CC) $(CFLAGS) -c -o load.o load.c 
