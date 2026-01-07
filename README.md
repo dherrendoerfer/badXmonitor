@@ -1,5 +1,5 @@
 # badXmonitor
-A handy monitor for the bad6502
+A handy monitor and simulation host for the bad6502
 
 ### usage:
 ./monitor  
