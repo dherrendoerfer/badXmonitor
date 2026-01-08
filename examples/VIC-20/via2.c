@@ -112,10 +112,11 @@ static void *kb_read_thread()
           key_down=getch();
           if (key_down == 0x18)
               exit(1);
+//          printf("%02X",key_down);
       } else {
           key_down = 0;
       }
-      usleep(100000);
+      usleep(50000);
     }
 }
 

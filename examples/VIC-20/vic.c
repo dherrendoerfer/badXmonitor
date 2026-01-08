@@ -45,7 +45,8 @@ uint16_t palette[] = {0x0000,0xFFFF,0x69AD,0x752E,0x69ED,0x5C6B,0x3146,0xBE37,0x
 uint16_t mem_addrs[]={0x8000,0x8400,0x8800,0x8C00,0x9000,0x9400,0x9800,0x9C00,0x0000,0x0400,0x0800,0x0c00,0x1000,0x1400,0x1800,0x1C00};
 uint16_t color_addrs[]={0x9400,0x9600};
 
-uint32_t pal[]={0x000000,0xFFFFFF,0x68372B,0x70A4B2,0x6F3D86,0x588D43,0x352879,0xB8C76F,0x6F4F25,0x433900,0x9A6759,0x444444,0x6C6C6C,0x9AD284,0x6C5EB5,0x959595};
+//Palette transcoder
+//uint32_t pal[]={0x000000,0xFFFFFF,0x68372B,0x70A4B2,0x6F3D86,0x588D43,0x352879,0xB8C76F,0x6F4F25,0x433900,0x9A6759,0x444444,0x6C6C6C,0x9AD284,0x6C5EB5,0x959595};
 
 // internal registers expanded
 uint8_t interlaced;
@@ -74,6 +75,14 @@ size_t fbbuflen;
 uint16_t counter = 0;
 pthread_t videoThread;
 
+uint16_t current_line = 0;
+uint16_t current_column = 0;
+
+#define ntsc_screen_width 210
+#define ntsc_screen_height 233
+//uint8_t pal_screen_width = 233;
+//uint8_t pal_screen_height = 284;
+
 static inline void _point(uint16_t x, uint16_t y, uint8_t col)
 {
     uint16_t pixel = palette[col];
@@ -93,10 +102,10 @@ static void *display_thread(void *arg)
   uint16_t g,h,i,j;
   uint8_t buf, c_rom;
 
+  // Old, monochrome, hires.
   while (0) {
     for (g=0; g<rows; g++) {
       for (h=0; h<columns; h++) {
-        //
         buf = mem[screenmem_loc+(columns*g)+h];
 
         for (i=0; i<8; i++) {
@@ -119,13 +128,8 @@ static void *display_thread(void *arg)
     usleep(25000);
   }
 
-  uint8_t ntsc_screen_width = 210;
-  uint8_t ntsc_screen_height = 233;
-//  uint8_t pal_screen_width = 233;
-//  uint8_t pal_screen_height = 284;
-
-  uint16_t current_line = 0;
-  uint16_t current_column = 0;
+  current_line = 0;
+  current_column = 0;
 
   //ntsc color screen draw
   while(1) {
@@ -144,13 +148,58 @@ static void *display_thread(void *arg)
     }
 
     if ( double_size) {
-      //later
+      //double sized characters (16bytes per char)
+      for ( v_screen_pos = 0 ; v_screen_pos < rows; v_screen_pos++) {
+        // draw 8 lines
+        for (uint8_t h=0; h<16; h++) {
+          //draw border
+          for (current_column=0; current_column < x_border; current_column++)
+            _point( current_column, current_line, border_color);
+
+          for ( h_screen_pos=0; h_screen_pos < columns; h_screen_pos++) {
+            uint8_t thischar  = mem[screenmem_loc + (v_screen_pos*columns+h_screen_pos)];
+            uint8_t col_ram = mem[colmem_loc + v_screen_pos*columns+h_screen_pos];
+            uint8_t c_rom = mem[charmem_loc + (thischar<<4) + h];
+            
+            if (col_ram & 0x08) {
+              //Multicolor mode
+              uint8_t pixels[]={(c_rom & 0xC0)>>6, (c_rom & 0x30)>>4, (c_rom & 0x0C)>>2, (c_rom & 0x03) };
+              uint8_t pcols[]={screen_color,border_color,col_ram & 0x07,aux_color};
+
+              _point( current_column++, current_line, pcols[pixels[0]]);
+              _point( current_column++, current_line, pcols[pixels[0]]);
+              _point( current_column++, current_line, pcols[pixels[1]]);
+              _point( current_column++, current_line, pcols[pixels[1]]);
+              _point( current_column++, current_line, pcols[pixels[2]]);
+              _point( current_column++, current_line, pcols[pixels[2]]);
+              _point( current_column++, current_line, pcols[pixels[3]]);
+              _point( current_column++, current_line, pcols[pixels[3]]);
+
+            } else {
+              //Singlecolor
+              uint8_t pcols[] = {screen_color,col_ram & 0x7};
+
+               _point( current_column++, current_line, pcols[((c_rom&1<<7) != 0)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<6) != 0)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<5) != 0)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<4) != 0)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<3) != 0)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<2) != 0)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<1) != 0)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<0) != 0)]);
+            }
+          }
+          for (current_column; current_column < ntsc_screen_width; current_column++)
+            _point( current_column, current_line, border_color);
+
+          current_line++;
+        }
+      }
     } else {
       //normale size chars
       for ( v_screen_pos = 0 ; v_screen_pos < rows; v_screen_pos++) {
         // draw 8 lines
         for (uint8_t h=0; h<8; h++) {
-
           //draw border
           for (current_column=0; current_column < x_border; current_column++)
             _point( current_column, current_line, border_color);
@@ -167,13 +216,10 @@ static void *display_thread(void *arg)
 
               _point( current_column++, current_line, pcols[pixels[0]]);
               _point( current_column++, current_line, pcols[pixels[0]]);
-
               _point( current_column++, current_line, pcols[pixels[1]]);
               _point( current_column++, current_line, pcols[pixels[1]]);
-
               _point( current_column++, current_line, pcols[pixels[2]]);
               _point( current_column++, current_line, pcols[pixels[2]]);
-
               _point( current_column++, current_line, pcols[pixels[3]]);
               _point( current_column++, current_line, pcols[pixels[3]]);
 
@@ -189,18 +235,6 @@ static void *display_thread(void *arg)
                _point( current_column++, current_line, pcols[((c_rom&1<<2) != 0)]);
                _point( current_column++, current_line, pcols[((c_rom&1<<1) != 0)]);
                _point( current_column++, current_line, pcols[((c_rom&1<<0) != 0)]);
-/*              
-              for (j=7; j>0; j--) {
-                if (c_rom&(1<<j)) {
-                  //setpixel
-                    _point( current_column, current_line, pcol);
-                }
-                else {
-                    //clearpixel 
-                    _point( current_column, current_line, screen_color);
-                }
-                current_column++; 
-              } */
             }
           }
 
@@ -218,10 +252,7 @@ static void *display_thread(void *arg)
     }
 
     usleep(25000);
-
-
   }
-
 }
 
 int fb_init()
@@ -291,7 +322,7 @@ void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)
       printf("kb thread create failed\n");
       exit(1);
   }
-
+/*
   for(int i=0;i<16;i++) {
     uint8_t r = pal[i] >> 16;
     uint8_t g = (pal[i] >> 8)&0xff;
@@ -300,7 +331,7 @@ void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)
       printf("0x%04X,",((r>>3)<<11 | (g>>2)<<5 | (b>>3)));
       printf("\r\n");
   }
-
+*/
 }
 
 int mon_tick()
@@ -318,6 +349,14 @@ int mon_banks()
 // mem read
 uint8_t mon_read(uint16_t address)
 {
+  address &= 0x0f;
+
+//  printf("R: 0x%02X", address);
+  switch(address) {
+    case 4:
+            return((current_line>>1) & 0xff);
+  }
+
   return mem[address];
 }
 
@@ -349,6 +388,7 @@ void mon_write(uint16_t address, uint8_t data)
             rows = (data & 0x7e) >> 1;
             double_size = data & 0x01;
             printf("rows      : %04X\r\n",rows);
+            printf("doublesize: %04X\r\n",double_size);
             break;
     case 4:
             raster_value = data << 1;

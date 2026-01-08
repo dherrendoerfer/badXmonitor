@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -9,7 +10,7 @@ static uint8_t *mem;
 static uint8_t *interrupt;
 static uint16_t base_address;
 
-char filename[16];
+char filename[40];
 uint16_t return_address;
 
 void loadfile(char *filename) 
@@ -45,8 +46,15 @@ void load_trap()
  //   printf("DEV: %i\r\n",mem[0xBA]);
  //   printf("NLENGTH: %i\r\n",mem[0xB7]);
 
-    memcpy(filename,&mem[mem[0xBC]*256 + mem[0xBB]],mem[0xB7]);
-    filename[mem[0xB7]]=0;
+    char buffer[32];
+
+    memcpy(buffer, &mem[mem[0xBC]*256 + mem[0xBB]],mem[0xB7]);
+    buffer[mem[0xB7]]=0;
+
+    snprintf(filename, 32, "%s.prg", buffer);
+
+    for (int i=0; filename[i]!=0;i++)
+        filename[i]=tolower(filename[i]);
 
     printf("FILE: %s\r\n",filename);
 
