@@ -57,7 +57,9 @@ uint16_t raster_value;
 uint8_t columns=23;
 uint8_t rows=22;
 uint8_t double_size;
+uint8_t screenmem = 0xf;
 uint16_t screenmem_loc = 0x1000;
+uint8_t charmem = 0;
 uint16_t charmem_loc = 0x8000;
 uint16_t colmem_loc = 0x9400;
 uint8_t aux_color;
@@ -75,10 +77,10 @@ size_t fbbuflen;
 uint16_t counter = 0;
 pthread_t videoThread;
 
-uint16_t current_line = 0;
+volatile uint16_t current_line = 0;
 uint16_t current_column = 0;
 
-#define ntsc_screen_width 210
+#define ntsc_screen_width 240
 #define ntsc_screen_height 233
 //uint8_t pal_screen_width = 233;
 //uint8_t pal_screen_height = 284;
@@ -351,10 +353,16 @@ uint8_t mon_read(uint16_t address)
 {
   address &= 0x0f;
 
-//  printf("R: 0x%02X", address);
+//printf("R: 0x%02X", address);
   switch(address) {
+    case 2:
+            return ((screen_mem_offset<<7) | (columns & 0x7f));
+    case 3:
+            return(((current_line & 1) << 7) | ((rows << 1) & 0x7e) | (double_size & 1));
     case 4:
             return((current_line>>1) & 0xff);
+    case 5:
+            return (((screenmem & 0xf) << 8) | (charmem & 0xf));
   }
 
   return mem[address];
@@ -377,8 +385,9 @@ void mon_write(uint16_t address, uint8_t data)
             printf("v_origin  : %04X\r\n",v_origin);
             break;
     case 2: 
-            screen_mem_offset = data & 0x80;
-            colmem_loc=color_addrs[screen_mem_offset>>7];
+            screen_mem_offset = (data & 0x80) >> 7;
+            colmem_loc=color_addrs[screen_mem_offset];
+            screenmem_loc=mem_addrs[screenmem] + (screen_mem_offset << 9);
             columns = data & 0x7f;
             printf("color_mem: %04X\r\n",colmem_loc);
             printf("columns   : %04X\r\n",columns);
@@ -394,8 +403,10 @@ void mon_write(uint16_t address, uint8_t data)
             raster_value = data << 1;
             break;
     case 5:
-            screenmem_loc = mem_addrs[(data & 0xf0) >> 4];
-            charmem_loc = mem_addrs[data & 0x0f];
+            screenmem=(data & 0xf0) >> 4;
+            screenmem_loc = mem_addrs[screenmem]+ (screen_mem_offset << 9);
+            charmem=data & 0x0f;
+            charmem_loc = mem_addrs[charmem];
             printf("screen_mem: %04X\r\n",screenmem_loc);
             printf("char_mem:   %04X\r\n",charmem_loc);
             break;

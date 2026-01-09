@@ -277,7 +277,7 @@ void tick6502()
     vtmp=*gpio_o_set; //read back to flush to memory
   #endif
 
-//usleep(1000); // For the LED board
+//usleep(10000); // For the LED board
 
   // decode addr and !RW from the bus
   bus_rw = tmp & 1<<24;
@@ -288,11 +288,11 @@ void tick6502()
     //set DATA to OUT
     *gpio = _6502_gpio_data_w;
     data=read6502(bus_addr,0);
-
+    
     //write to 6502
     *gpio_o_clear=(uint32_t) 0xff;
     *gpio_o_set=data;
-//    vtmp=*gpio_o_set; //read back to flush to memory
+    //vtmp=*gpio_o_set; //read back to flush to memory
 
 //    ndelay20;
   }
@@ -333,21 +333,23 @@ void logVector()
 }
 #endif
 
-void step6502()
+uint8_t step6502()
 {
   uint8_t ticks=0;
+  uint8_t cycles=0;
 
   #ifdef DEBUG
     printf("Step6502\r\n");
   #endif
 
   tick6502();
+  cycles++;
   ndelay20;
   if ((bus_addr < 0x200) | (bus_addr > 0xFFF9)) {
     #ifdef STEPDEBUG
       logVector();
     #endif
-    return;
+    return cycles;
   }
 
   ticks=ticktable_65c02[data];
@@ -357,12 +359,13 @@ void step6502()
 
   while (--ticks) {
     tick6502();
+    cycles++;
     ndelay20;
     if (bus_addr > 0xFFF9) {
       #ifdef STEPDEBUG
         logVector();
       #endif
-      return;
+      return cycles;
     }
 
     #ifdef STEPDEBUG
@@ -374,6 +377,7 @@ void step6502()
       printf("\r\n");
     #endif
   }
+  return cycles;
 }
 
 void exec6502(uint32_t tickcount)

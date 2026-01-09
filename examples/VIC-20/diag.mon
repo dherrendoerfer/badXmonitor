@@ -5,6 +5,9 @@ r E000 /root/badXmonitor/examples/VIC-20/kernal.901486-06.bin
 h 9000 /root/badXmonitor/examples/VIC-20/vic.so
 h 9110 /root/badXmonitor/examples/VIC-20/via1.so
 h 9120 /root/badXmonitor/examples/VIC-20/via2.so
-t F549 /root/badXmonitor/examples/VIC-20/load.so
-t F685 /root/badXmonitor/examples/VIC-20/save.so
+#t F549 /root/badXmonitor/examples/VIC-20/load.so
+#t F685 /root/badXmonitor/examples/VIC-20/save.so
+#r A000 ./dead-test.a0
+r A000 ./diag-vic20.bin
+#r A000 ./a.o65
 g

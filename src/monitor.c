@@ -32,7 +32,6 @@
 uint8_t mem[0x10000];
 uint8_t mem_desc[0x10000];
 
-//uint8_t rom_map[0x100];
 void *io_map_read[0x1000];
 void *io_map_write[0x1000];
 
@@ -294,15 +293,19 @@ uint8_t read6502(uint16_t address, uint8_t bank)
   if (IS_RAM(mem_desc[address]))
     return mem[address];
 
+  if (IS_TRAP(mem_desc[address])) {
+    uint8_t (*trap_read)(uint16_t) = trap_map_read[address] ;
+    return (*trap_read)(address);
+  }
+
+  if (IS_ROM_P0(mem_desc[address])) //simulated ROM 
+    return mem[address];
+
   if (IS_IO(mem_desc[address])) {
     uint8_t (*io_read)(uint16_t) = io_map_read[address>>4] ;
     return (*io_read)(address);
   }
 
-  if (IS_TRAP(mem_desc[address])) {
-    uint8_t (*trap_read)(uint16_t) = trap_map_read[address] ;
-    return (*trap_read)(address);
-  }
 
   return mem[address];
 }
@@ -322,8 +325,10 @@ void write6502(uint16_t address, uint8_t bank, uint8_t data)
     return;
   }
 
-  if (IS_ROM_P0(mem_desc[address])) //simulated ROM 
+  if (IS_ROM_P0(mem_desc[address])){ //simulated ROM 
+    printf("X: 0x%04X",address);
     return;
+  }
 
 
   if (IS_IO(mem_desc[address])) {
@@ -499,6 +504,8 @@ int main(int argc, char **argv)
   set_conio_terminal_mode();
   setbuf(stdout, NULL);
   
+  bzero(mem,0x10000);
+
   int line=1;
   
   uint8_t int_before_step = interrupt;
@@ -690,9 +697,10 @@ int main(int argc, char **argv)
         fd = open(data_buffer, O_RDONLY);
 
         while ((read(fd,&data,1))>0) {
-          mem[address++]=data;
+          mem[address]=data;
           if (mark_rom)
             SET_ROM_P0(mem_desc[address]);
+          address++;
         }
 
         printf("read until 0x%04X\r\n",(address-1));
@@ -720,13 +728,31 @@ int main(int argc, char **argv)
 
       // step past the reset code
       for (int i=0 ; i<32 ; i++) {
-        step6502();
-        usleep(1000);
+        tick6502();
+        usleep(10);
+        if(bus_addr == 0xFFFD)
+          break;
       }
 
+      uint8_t cycles;
 loop:  
       int_before_step = interrupt;
-      step6502();
+      cycles = step6502();
+
+      // hardware ticks
+      for (int i=0;i<plugin_tick_num;i++) {
+        uint8_t (*mon_do_tick)(uint8_t);
+        mon_do_tick = plugins_tick[i];
+        interrupt |= (*mon_do_tick)(cycles);    
+      }
+      
+      if (interrupt != int_before_step)
+        irq6502(interrupt);
+
+/*
+loop:
+      int_before_step = interrupt;
+      tick6502();
 
       // hardware ticks
       for (int i=0;i<plugin_tick_num;i++) {
@@ -738,12 +764,12 @@ loop:
       if (interrupt != int_before_step)
         irq6502(interrupt);
 
-//      usleep(100000);
+      //usleep(100000);
       #ifndef FAST
-      usleep(100000);
+      usleep(10000);
       #endif
-
-      if (bus_addr != 0xfffc)
+*/
+      //if (bus_addr != 0xfffc)
         goto loop;
 //^^^ loop ///
 

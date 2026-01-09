@@ -8,7 +8,8 @@
 #include <stdint.h>
 
 extern void reset6502(uint8_t c816);
-extern void step6502();
+extern void tick6502();
+extern uint8_t step6502();
 //extern void exec6502(uint32_t tickcount);
 extern void irq6502();
 extern void nmi6502();
