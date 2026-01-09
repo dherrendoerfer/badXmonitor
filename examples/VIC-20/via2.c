@@ -94,11 +94,13 @@ int kbhit()
 int getch()
 {
     int r;
-    unsigned char c;
+    unsigned char c[4];
     if ((r = read(0, &c, sizeof(c))) < 0) {
         return r;
     } else {
-        return c;
+        if ((r==4) & (c[0] == 0x1b) & (c[1] == 0x5b) & (c[2] == 0x5b))
+          return (c[3] | 0x80);
+        return c[0];
     }
 }
 
@@ -112,7 +114,7 @@ static void *kb_read_thread()
           key_down=getch();
           if (key_down == 0x18)
               exit(1);
-//          printf("%02X",key_down);
+          //printf("%02X",key_down);
       } else {
           key_down = 0;
       }
