@@ -11,6 +11,9 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 
+//#define DEBUG 1
+//#define DEBUGIO 1
+
 #define VID_MEMSTART 0x1000
 #define CHAR_ROMSTART 0x8000
 
@@ -81,9 +84,11 @@ volatile uint16_t current_line = 0;
 uint16_t current_column = 0;
 
 #define ntsc_screen_width 240
-#define ntsc_screen_height 233
+#define ntsc_screen_height 242 //233
 //uint8_t pal_screen_width = 233;
 //uint8_t pal_screen_height = 284;
+
+#define US_PERLINE 50
 
 static inline void _point(uint16_t x, uint16_t y, uint8_t col)
 {
@@ -144,10 +149,13 @@ static void *display_thread(void *arg)
     current_line = 0;
     current_column = 0;
 
+
     for (current_line;current_line<y_border;current_line++) {
       for (current_column=0; current_column < ntsc_screen_width; current_column++)
         _point( current_column, current_line, border_color);
+      usleep(US_PERLINE);
     }
+    
 
     if ( double_size) {
       //double sized characters (16bytes per char)
@@ -194,6 +202,7 @@ static void *display_thread(void *arg)
           for (current_column; current_column < ntsc_screen_width; current_column++)
             _point( current_column, current_line, border_color);
 
+          usleep(US_PERLINE);
           current_line++;
         }
       }
@@ -228,6 +237,10 @@ static void *display_thread(void *arg)
             } else {
               //Singlecolor
               uint8_t pcols[] = {screen_color,col_ram & 0x7};
+              if (!reverse_mode) {
+                pcols[0]=pcols[1];
+                pcols[1]=screen_color;
+              }
 
                _point( current_column++, current_line, pcols[((c_rom&1<<7) != 0)]);
                _point( current_column++, current_line, pcols[((c_rom&1<<6) != 0)]);
@@ -243,6 +256,7 @@ static void *display_thread(void *arg)
           for (current_column; current_column < ntsc_screen_width; current_column++)
             _point( current_column, current_line, border_color);
 
+          usleep(US_PERLINE);
           current_line++;
         }
       }
@@ -251,6 +265,7 @@ static void *display_thread(void *arg)
     for (current_line; current_line<ntsc_screen_height; current_line++) {
       for (current_column=0; current_column < ntsc_screen_width; current_column++)
         _point( current_column, current_line, border_color);
+      usleep(US_PERLINE);
     }
 
     usleep(25000);
@@ -352,7 +367,7 @@ int mon_banks()
 uint8_t mon_read(uint16_t address)
 {
   address &= 0x0f;
-  #ifdef DEBUG
+  #ifdef DEBUGIO
   printf("VIC READ REG: 0x%02X\r\n", address);
   #endif
 
@@ -362,6 +377,9 @@ uint8_t mon_read(uint16_t address)
     case 3:
             return(((current_line & 1) << 7) | ((rows << 1) & 0x7e) | (double_size & 1));
     case 4:
+            #ifdef DEBUGIO
+            printf("raster: 0x%03X\r\n", current_line);
+            #endif
             return((current_line>>1) & 0xff);
     case 5:
             return (((screenmem & 0xf) << 8) | (charmem & 0xf));
@@ -376,15 +394,16 @@ void mon_write(uint16_t address, uint8_t data)
 {
   address &= 0x0f;
 
-  #ifdef DEBUG
+  #ifdef DEBUGIO
   printf("VIC WRITE REG: 0x%02X, DATA: 0x%02X\r\n", address);
   #endif
 
   switch(address) {
     case 0:
-            interlaced = data & 0x80;
+            interlaced = (data & 0x80) >> 7;
             h_origin   = data & 0x7F;
             #ifdef DEBUG
+            printf("interlaced: %04X\r\n",interlaced);
             printf("h_origin  : %04X\r\n",h_origin);
             #endif
             break;
@@ -434,11 +453,12 @@ void mon_write(uint16_t address, uint8_t data)
             break;
     case 0x0f:
             screen_color = (data & 0xf0) >> 4;
-            reverse_mode = (data & 0x8);
+            reverse_mode = (data & 0x8) >> 3;
             border_color = (data & 0x7);
             #ifdef DEBUG
             printf("screen_col: %04X\r\n",screen_color);
             printf("border_col: %04X\r\n",border_color);
+            printf("reverse.  : %04X\r\n",reverse_mode);
             #endif
             break;
 
