@@ -42,9 +42,11 @@ void savefile(char *filename, uint16_t start, uint16_t end)
 
 void save_trap()
 {
+    #ifdef DEBUG
     printf("SAVE TRAP\r\n");
- //   printf("DEV: %i\r\n",mem[0xBA]);
- //   printf("NLENGTH: %i\r\n",mem[0xB7]);
+    printf("DEV: %i\r\n",mem[0xBA]);
+    printf("NLENGTH: %i\r\n",mem[0xB7]);
+    #endif
 
     char buffer[32];
 
@@ -56,13 +58,18 @@ void save_trap()
     for (int i=0; filename[i]!=0;i++)
         filename[i]=tolower(filename[i]);
 
+    #ifdef DEBUG
     printf("FILE: %s\r\n",filename);
+    #endif
 
     uint16_t start = mem[0xc1] + mem[0xC2]*256;
     uint16_t end = mem[0xAE] + mem[0xAF]*256;
-
+    
+    #ifdef DEBUG
     printf("Save from 0x%04X to 0x%04X\r\n",start,end);
-   savefile(filename,start,end);
+    #endif
+
+    savefile(filename,start,end);
 }
 
 // Basic info

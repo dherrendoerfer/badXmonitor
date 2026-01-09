@@ -42,9 +42,11 @@ void loadfile(char *filename)
 
 void load_trap()
 {
+    #ifdef DEBUG
     printf("LOAD TRAP\r\n");
- //   printf("DEV: %i\r\n",mem[0xBA]);
- //   printf("NLENGTH: %i\r\n",mem[0xB7]);
+    printf("DEV: %i\r\n",mem[0xBA]);
+    printf("NLENGTH: %i\r\n",mem[0xB7]);
+    #endif
 
     char buffer[32];
 
@@ -56,7 +58,9 @@ void load_trap()
     for (int i=0; filename[i]!=0;i++)
         filename[i]=tolower(filename[i]);
 
+    #ifdef DEBUG
     printf("FILE: %s\r\n",filename);
+    #endif
 
     loadfile(filename);
 }

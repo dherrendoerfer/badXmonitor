@@ -352,8 +352,10 @@ int mon_banks()
 uint8_t mon_read(uint16_t address)
 {
   address &= 0x0f;
+  #ifdef DEBUG
+  printf("VIC READ REG: 0x%02X\r\n", address);
+  #endif
 
-//printf("R: 0x%02X", address);
   switch(address) {
     case 2:
             return ((screen_mem_offset<<7) | (columns & 0x7f));
@@ -374,30 +376,42 @@ void mon_write(uint16_t address, uint8_t data)
 {
   address &= 0x0f;
 
+  #ifdef DEBUG
+  printf("VIC WRITE REG: 0x%02X, DATA: 0x%02X\r\n", address);
+  #endif
+
   switch(address) {
     case 0:
             interlaced = data & 0x80;
             h_origin   = data & 0x7F;
+            #ifdef DEBUG
             printf("h_origin  : %04X\r\n",h_origin);
+            #endif
             break;
     case 1: 
             v_origin = data;
+            #ifdef DEBUG
             printf("v_origin  : %04X\r\n",v_origin);
+            #endif
             break;
     case 2: 
             screen_mem_offset = (data & 0x80) >> 7;
             colmem_loc=color_addrs[screen_mem_offset];
             screenmem_loc=mem_addrs[screenmem] + (screen_mem_offset << 9);
             columns = data & 0x7f;
-            printf("color_mem: %04X\r\n",colmem_loc);
+            #ifdef DEBUG
+            printf("color_mem : %04X\r\n",colmem_loc);
             printf("columns   : %04X\r\n",columns);
+            #endif
             break;
     case 3:
             raster_value |= (data & 0x80) >> 7;
             rows = (data & 0x7e) >> 1;
             double_size = data & 0x01;
+            #ifdef DEBUG
             printf("rows      : %04X\r\n",rows);
             printf("doublesize: %04X\r\n",double_size);
+            #endif
             break;
     case 4:
             raster_value = data << 1;
@@ -407,19 +421,25 @@ void mon_write(uint16_t address, uint8_t data)
             screenmem_loc = mem_addrs[screenmem]+ (screen_mem_offset << 9);
             charmem=data & 0x0f;
             charmem_loc = mem_addrs[charmem];
+            #ifdef DEBUG
             printf("screen_mem: %04X\r\n",screenmem_loc);
-            printf("char_mem:   %04X\r\n",charmem_loc);
+            printf("char_mem. : %04X\r\n",charmem_loc);
+            #endif
             break;
     case 0x0e:
             aux_color = (data & 0xf0) >> 4;
-            printf("aux_color: %04X\r\n",aux_color);
+            #ifdef DEBUG
+            printf("aux_color : %04X\r\n",aux_color);
+            #endif
             break;
     case 0x0f:
             screen_color = (data & 0xf0) >> 4;
             reverse_mode = (data & 0x8);
             border_color = (data & 0x7);
-            printf("screen_color: %04X\r\n",screen_color);
-            printf("border_color: %04X\r\n",border_color);
+            #ifdef DEBUG
+            printf("screen_col: %04X\r\n",screen_color);
+            printf("border_col: %04X\r\n",border_color);
+            #endif
             break;
 
     default:

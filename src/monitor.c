@@ -326,7 +326,7 @@ void write6502(uint16_t address, uint8_t bank, uint8_t data)
   }
 
   if (IS_ROM_P0(mem_desc[address])){ //simulated ROM 
-    printf("X: 0x%04X",address);
+    // printf("X: 0x%04X ",address);
     return;
   }
 
