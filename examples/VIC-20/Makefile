@@ -16,7 +16,7 @@ via2:
 
 vic:
 	$(CC) $(CFLAGS) -c -o vic.o vic.c 
-	$(CC) $(CFLAGS) vic.o -fPIC -shared -lpthread -o vic.so  
+	$(CC) $(CFLAGS) vic.o -fPIC -shared -lpthread -lasound -o vic.so  
 
 load:
 	$(CC) $(CFLAGS) -c -o load.o load.c 

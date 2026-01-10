@@ -11,6 +11,8 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 
+#include <alsa/asoundlib.h>
+
 //#define DEBUG 1
 //#define DEBUGIO 1
 
@@ -65,11 +67,30 @@ volatile uint16_t current_line = 0;
 uint16_t current_column = 0;
 
 #define ntsc_screen_width 240
-#define ntsc_screen_height 242 //233
+#define ntsc_screen_height 238 //233
 //uint8_t pal_screen_width = 233;
 //uint8_t pal_screen_height = 284;
 
 #define US_PERLINE 50
+
+pthread_t soundThread;
+snd_pcm_t *pcm_handle;
+snd_pcm_hw_params_t *params;
+
+#define PCM_DEVICE "default"
+#define PCM_FREQ  22050
+#define PCM_CHANNELS 1
+
+volatile uint8_t bass_sw = 0;
+volatile uint8_t bass_freq = 0;
+volatile uint8_t alto_sw = 0;
+volatile uint8_t alto_freq = 0;
+volatile uint8_t soprano_sw = 0;
+volatile uint8_t soprano_freq = 0;
+volatile uint8_t noise_sw = 0;
+volatile uint8_t noise_freq = 0;
+
+int8_t noise[128] = {55,203,99,196,161,81,5,52,189,245,9,31,232,169,182,177,81,217,65,166,128,43,121,159,252,130,1,90,230,59,65,96,234,53,243,176,11,144,197,159,122,149,213,179,78,158,91,68,111,193,132,14,88,96,140,232,60,185,50,211,3,195,158,97,201,67,246,9,212,58,54,146,211,182,105,49,189,128,163,42,13,204,222,251,26,160,172,66,184,37,57,145,39,92,181,251,41,188,219,87,84,109,179,193,169,85,78,161,118,3,234,174,77,18,232,63,202,61,116,218,215,167,210,251,146,65,202,167};
 
 static inline void _point(uint16_t x, uint16_t y, uint8_t col)
 {
@@ -87,8 +108,10 @@ static inline void _point(uint16_t x, uint16_t y, uint8_t col)
 
 static void *display_thread(void *arg)
 {
+/*
   uint16_t g,h,i,j;
   uint8_t buf, c_rom;
+
 
   // Old, monochrome, hires.
   while (0) {
@@ -115,6 +138,7 @@ static void *display_thread(void *arg)
 
     usleep(25000);
   }
+*/
 
   current_line = 0;
   current_column = 0;
@@ -137,8 +161,7 @@ static void *display_thread(void *arg)
       usleep(US_PERLINE);
     }
     
-
-    if ( double_size) {
+    if (double_size) {
       //double sized characters (16bytes per char)
       for ( v_screen_pos = 0 ; v_screen_pos < rows; v_screen_pos++) {
         // draw 8 lines
@@ -249,7 +272,135 @@ static void *display_thread(void *arg)
       usleep(US_PERLINE);
     }
 
+    // offsreen for raster retrace detect
+    for (current_line; current_line<ntsc_screen_height+4; current_line++) {
+      usleep(US_PERLINE+15);
+    }
+
     usleep(25000);
+  }
+}
+
+int setup_sound()
+{
+  //snd_pcm_uframes_t frames = 32;
+  int err;
+    // 1. PCM Gerät für Wiedergabe öffnen
+    if ((err = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0)) < 0) {
+        fprintf(stderr, "cant open sound device: %s\n", snd_strerror(err));
+        return 1;
+    }
+
+    // 2. Hardware-Parameter zuweisen
+    snd_pcm_hw_params_alloca(&params);
+    snd_pcm_hw_params_any(pcm_handle, params);
+    snd_pcm_hw_params_set_access(pcm_handle, params, SND_PCM_ACCESS_RW_INTERLEAVED);
+    snd_pcm_hw_params_set_format(pcm_handle, params, SND_PCM_FORMAT_S16_LE); // 16-bit
+    snd_pcm_hw_params_set_channels(pcm_handle, params, PCM_CHANNELS); // Mono
+    unsigned int rate = PCM_FREQ;
+    snd_pcm_hw_params_set_rate_near(pcm_handle, params, &rate, 0);
+    snd_pcm_uframes_t frames = 256;
+    snd_pcm_hw_params_set_period_size_near(pcm_handle, params, &frames, 0);
+    snd_pcm_uframes_t size = 512;
+    snd_pcm_hw_params_set_buffer_size_near( pcm_handle, params, &size );
+    err=snd_pcm_hw_params(pcm_handle, params);
+
+  return err;
+}
+
+static void *sound_thread(void *arg) 
+{
+  char* buff;
+  uint16_t buff_size;
+  int tmp;
+
+	buff_size = 4 * PCM_CHANNELS * 2;/* 2 -> sample size */
+	buff = (char *) malloc(buff_size);
+
+  printf("sound buffer size: %d",buff_size);
+
+  uint16_t bass_count = 0;
+  uint16_t alto_count = 0;
+  uint16_t soprano_count = 0;
+  uint8_t bass = 0;
+  uint8_t alto = 0;
+  uint8_t soprano = 0;
+
+    while (1) {
+      uint16_t i = 0;
+      while  (i<buff_size){
+        bass_count += bass_freq;
+        alto_count += alto_freq;
+        soprano_count += soprano_freq;
+
+        if (bass_count > 127 << 3){
+          bass= !bass;
+          bass_count = 0;
+        }
+        if (alto_count > 127 << 2){
+          alto= !alto;
+          alto_count = 0;
+        }
+        if (soprano_count > 127 << 1){
+          soprano= !soprano;
+          soprano_count = 0;
+        }
+
+        buff[i++] == 0;
+        buff[i] = 0;
+
+        if (bass_sw)
+          if(bass)
+            buff[i] += 64;
+          else
+            buff[i] -= 64;
+
+        if (alto_sw)
+          if(alto)
+            buff[i] += 64;
+          else
+            buff[i] -= 64;
+      
+        if (soprano_sw)
+          if(soprano)
+            buff[i] += 64;
+          else
+            buff[i] -= 64;
+
+        if (noise_sw)
+          buff[i] += noise[i];
+
+        i++;
+      }
+  /*  while  (i<buff_size){
+      buff[i++] = 127;
+      buff[i++] = 127;
+      buff[i++] = 127;
+      buff[i++] = 127;
+      buff[i++] = 127;
+      buff[i++] = 127;
+      buff[i++] = 127;
+      buff[i++] = 127;
+      buff[i++] = -127;
+      buff[i++] = 0;
+      buff[i++] = -127;
+      buff[i++] = 0;
+      buff[i++] = -127;
+      buff[i++] = 0;
+      buff[i++] = -127;
+      buff[i++] = 0;
+    } */
+
+    tmp=snd_pcm_writei(pcm_handle, buff, buff_size/2);
+    if (tmp == -EPIPE) {
+      // EPIPE means underrun
+      printf("underrun occurred\r\n");
+      snd_pcm_prepare(pcm_handle);
+    }
+
+    //usleep(100);
+    //printf("PCM state: %s\r\n", snd_pcm_state_name(snd_pcm_state(pcm_handle)));
+
   }
 }
 
@@ -275,7 +426,6 @@ int fb_init()
               write(consolefd,CHAR_CURSOR_HIDE,6);
               close(consolefd);
             }
- 
             return 0;   /* Indicate success */
          }
          else {
@@ -315,10 +465,20 @@ void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)
   }
 
   if (pthread_create(&videoThread, NULL, display_thread, NULL)) {
-      printf("kb thread create failed\n");
+      printf("video thread create failed\n");
       exit(1);
   }
-/*
+
+  if (setup_sound()){
+    exit(1);
+  }
+
+  if (pthread_create(&soundThread, NULL, sound_thread, NULL)) {
+      printf("sound thread create failed\n");
+      exit(1);
+  }
+
+  /*
   for(int i=0;i<16;i++) {
     uint8_t r = pal[i] >> 16;
     uint8_t g = (pal[i] >> 8)&0xff;
@@ -424,6 +584,34 @@ void mon_write(uint16_t address, uint8_t data)
             printf("char_mem. : %04X\r\n",charmem_loc);
             #endif
             break;
+    case 0x0a:
+            bass_sw = (data & 0x80)>>7;
+            bass_freq =  data & 0x7f;
+            #ifdef DEBUG
+            printf ("bass=%02X ",data);
+            #endif
+            break;
+    case 0x0b:
+            alto_sw = (data & 0x80)>>7;
+            alto_freq = data & 0x7f;
+            #ifdef DEBUG
+            printf ("alto=%02X ",data);
+            #endif
+            break;
+    case 0x0c:
+            soprano_sw = (data & 0x80)>>7;
+            soprano_freq = data & 0x7f;
+            #ifdef DEBUG
+            printf ("soprano=%02X ",data);
+            #endif
+            break;
+    case 0x0d:
+            noise_sw = (data & 0x80)>>7;
+            noise_freq = data & 0x7f;
+            #ifdef DEBUG
+            printf ("noise=%02X ",data);
+            #endif
+            break;
     case 0x0e:
             aux_color = (data & 0xf0) >> 4;
             #ifdef DEBUG
@@ -446,7 +634,6 @@ void mon_write(uint16_t address, uint8_t data)
   }
 
   mem[address] = data;
-
 }
 
 uint8_t mon_do_tick(uint8_t ticks)
