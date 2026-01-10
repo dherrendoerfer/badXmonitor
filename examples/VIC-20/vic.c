@@ -90,7 +90,7 @@ volatile uint8_t soprano_freq = 0;
 volatile uint8_t noise_sw = 0;
 volatile uint8_t noise_freq = 0;
 
-int8_t noise[128] = {55,203,99,196,161,81,5,52,189,245,9,31,232,169,182,177,81,217,65,166,128,43,121,159,252,130,1,90,230,59,65,96,234,53,243,176,11,144,197,159,122,149,213,179,78,158,91,68,111,193,132,14,88,96,140,232,60,185,50,211,3,195,158,97,201,67,246,9,212,58,54,146,211,182,105,49,189,128,163,42,13,204,222,251,26,160,172,66,184,37,57,145,39,92,181,251,41,188,219,87,84,109,179,193,169,85,78,161,118,3,234,174,77,18,232,63,202,61,116,218,215,167,210,251,146,65,202,167};
+int8_t rndnoise[128] = {55,203,99,196,161,81,5,52,189,245,9,31,232,169,182,177,81,217,65,166,128,43,121,159,252,130,1,90,230,59,65,96,234,53,243,176,11,144,197,159,122,149,213,179,78,158,91,68,111,193,132,14,88,96,140,232,60,185,50,211,3,195,158,97,201,67,246,9,212,58,54,146,211,182,105,49,189,128,163,42,13,204,222,251,26,160,172,66,184,37,57,145,39,92,181,251,41,188,219,87,84,109,179,193,169,85,78,161,118,3,234,174,77,18,232,63,202,61,116,218,215,167,210,251,146,65,202,167};
 
 static inline void _point(uint16_t x, uint16_t y, uint8_t col)
 {
@@ -322,9 +322,11 @@ static void *sound_thread(void *arg)
   uint16_t bass_count = 0;
   uint16_t alto_count = 0;
   uint16_t soprano_count = 0;
+  uint16_t noise_count = 0;
   uint8_t bass = 0;
   uint8_t alto = 0;
   uint8_t soprano = 0;
+  uint8_t noise=0;
 
     while (1) {
       uint16_t i = 0;
@@ -332,6 +334,7 @@ static void *sound_thread(void *arg)
         bass_count += bass_freq;
         alto_count += alto_freq;
         soprano_count += soprano_freq;
+        noise_count += noise_freq;
 
         if (bass_count > 127 << 3){
           bass= !bass;
@@ -344,6 +347,10 @@ static void *sound_thread(void *arg)
         if (soprano_count > 127 << 1){
           soprano= !soprano;
           soprano_count = 0;
+        }
+        if (noise_count > 127 << 3){
+          noise++ ;
+          noise_count = 0;
         }
 
         buff[i++] == 0;
@@ -368,33 +375,17 @@ static void *sound_thread(void *arg)
             buff[i] -= 64;
 
         if (noise_sw)
-          buff[i] += noise[i];
+          buff[i] += rndnoise[noise & 0x7F] >> 2;
 
         i++;
       }
-  /*  while  (i<buff_size){
-      buff[i++] = 127;
-      buff[i++] = 127;
-      buff[i++] = 127;
-      buff[i++] = 127;
-      buff[i++] = 127;
-      buff[i++] = 127;
-      buff[i++] = 127;
-      buff[i++] = 127;
-      buff[i++] = -127;
-      buff[i++] = 0;
-      buff[i++] = -127;
-      buff[i++] = 0;
-      buff[i++] = -127;
-      buff[i++] = 0;
-      buff[i++] = -127;
-      buff[i++] = 0;
-    } */
-
+  
     tmp=snd_pcm_writei(pcm_handle, buff, buff_size/2);
     if (tmp == -EPIPE) {
       // EPIPE means underrun
+      #ifdef DEBUG
       printf("underrun occurred\r\n");
+      #endif
       snd_pcm_prepare(pcm_handle);
     }
 
