@@ -192,7 +192,10 @@ static void *display_thread(void *arg)
             } else {
               //Singlecolor
               uint8_t pcols[] = {screen_color,col_ram & 0x7};
-
+              if (!reverse_mode) {
+                pcols[0]=pcols[1];
+                pcols[1]=screen_color;
+              }
                _point( current_column++, current_line, pcols[((c_rom&1<<7) != 0)]);
                _point( current_column++, current_line, pcols[((c_rom&1<<6) != 0)]);
                _point( current_column++, current_line, pcols[((c_rom&1<<5) != 0)]);
