@@ -16,8 +16,8 @@ h : load a hardware plugin and map it
 t : load a trap code plugin and map it  
 g : go (reset the cpu and start from reset vector)  
 
-### adresses and data
-adressses : typed as 0 to ffff, end with a space  
+### addresses and data
+addressses : typed as 0 to ffff, end with a space  
 data: typed as 0 to ff, end with a space  
 
 ### use in scripts
@@ -28,7 +28,7 @@ Comments are allowed.
 ## Plugins
 Plugins (shared libraries) can be used to provide  
 virtual hardware.  
-Each library can reserve an IO area and the monitori 
+Each library can reserve an IO area and the monitor 
 will redirect access to the plugin.  
 
 ## Traps
