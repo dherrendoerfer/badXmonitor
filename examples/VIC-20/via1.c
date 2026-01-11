@@ -1,14 +1,16 @@
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <strings.h>
 #include <unistd.h>
 
-#include <linux/fb.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+
+#include <linux/joystick.h>
 
 static uint8_t *mem;
 static uint8_t *interrupt;
@@ -66,6 +68,92 @@ int           via1__tick;
 #if DEBUG6522
 static const char * VIAREG2STR[] = { "ORB_IRB", "ORA_IRA", "DDRB", "DDRA", "T1_C_LO", "T1_C_HI", "T1_L_LO", "T1_L_HI", "T2_C_LO", "T2_C_HI", "SR", "ACR", "PCR", "IFR", "IER", "ORA_IRA_NH" };
 #endif
+
+volatile char joy0_down = 0;
+volatile char joy1_down = 0;
+volatile char joy2_down = 0;
+volatile char joy_fire_down = 0;
+
+pthread_t joystick_thread;
+
+struct axis_state {
+    short x, y;
+};
+
+int read_event(int fd, struct js_event *event)
+{
+  ssize_t bytes;
+  bytes = read(fd, event, sizeof(*event));
+    if (bytes == sizeof(*event))
+        return 0;
+    /* Error, could not read full event. */
+    return -1;
+}
+
+size_t get_axis(struct js_event *event, struct axis_state axis[3])
+{
+    size_t axis_ev = event->number / 2;
+    if (axis_ev < 3) {
+        if (event->number % 2 == 0)
+            axis[axis_ev].x = event->value;
+        else
+            axis[axis_ev].y = event->value;
+    }
+    return axis_ev;
+}
+
+// joystick read thread
+static void *js_read_thread()
+{
+  int js;
+  const char *jsdev="/dev/input/js0";
+  struct js_event event;
+  struct axis_state axis[3] = {0};
+  size_t axis_ev;
+
+  while (1) {
+    js = open(jsdev, O_RDONLY);
+
+    if (js >= 0) {
+      while (read_event(js, &event) == 0) {
+        switch (event.type) {
+          case JS_EVENT_BUTTON:
+  //            printf("Button %u %s\r\n", event.number, event.value ? "pressed" : "released");
+              if (event.number == 1) {
+                if (event.value)
+                  joy_fire_down=1;
+                else
+                  joy_fire_down=0;
+              }
+              break;
+          case JS_EVENT_AXIS:
+              axis_ev = get_axis(&event, axis);
+              if (axis_ev < 3) {
+  //                printf("Axis %zu at (%6d, %6d)\r\n", axis_ev, axis[axis_ev].x, axis[axis_ev].y);
+                  if (axis[axis_ev].y < -1024)
+                    joy0_down = 1;
+                  else 
+                    joy0_down = 0;
+                  if (axis[axis_ev].y > 1024)
+                    joy1_down = 1;
+                  else 
+                    joy1_down = 0;
+                  if (axis[axis_ev].x < -1024)
+                    joy2_down = 1;
+                  else 
+                    joy2_down = 0;
+              }
+              break;
+          default:
+              /* Ignore init events. */
+              break;
+        }
+      }
+    }
+    close(jsdev);
+    usleep(1000000);
+  }
+}
 
 void via1_reset()
 {
@@ -468,6 +556,11 @@ void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)
   interrupt = mon_interrupt;
   base_address = base_addr;
 
+  if (pthread_create(&joystick_thread, NULL, js_read_thread, NULL)) {
+      printf("js thread create failed\n");
+      exit(1);
+  }
+
   via1_reset();
 }
 
@@ -501,6 +594,26 @@ void mon_write(uint16_t address, uint8_t data)
 
 uint8_t mon_do_tick(uint8_t ticks)
 {
+  if (joy0_down) 
+    via1_setBitPA(2,0);
+  else 
+    via1_clearBitPA(2);
+
+  if (joy1_down) 
+    via1_setBitPA(3,0);
+  else 
+    via1_setBitPA(3,1);
+
+  if (joy2_down) 
+    via1_setBitPA(4,0);
+  else 
+    via1_setBitPA(4,1);
+
+  if (joy_fire_down) 
+    via1_setBitPA(5,0);
+  else 
+    via1_setBitPA(5,1);
+  
   if (via1_tick(ticks))
     *interrupt = 1;
   else 

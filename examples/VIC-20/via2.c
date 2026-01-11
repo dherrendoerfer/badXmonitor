@@ -15,6 +15,7 @@
 #include <sys/ioctl.h>
 #include <linux/kd.h>
 #include <linux/keyboard.h>
+#include <linux/joystick.h>
 
 static uint8_t *mem;
 static uint8_t *interrupt;
@@ -78,7 +79,10 @@ static const char * VIAREG2STR[] = { "ORB_IRB", "ORA_IRA", "DDRB", "DDRA", "T1_C
 uint16_t via2_kb_cycles = 0;
 volatile char key_down = 0;
 
-pthread_t keyboardThread;
+volatile char joy3_down = 0;
+
+pthread_t keyboard_thread;
+pthread_t joystick_thread;
 
 // KEYBOARD HANDLER
 
@@ -95,11 +99,19 @@ int getch()
 {
     int r;
     unsigned char c[4];
-    if ((r = read(0, &c, sizeof(c))) < 0) {
+    if ((r = read(0, &c[0], 1)) < 0) {
         return r;
     } else {
-        if ((r==4) & (c[0] == 0x1b) & (c[1] == 0x5b) & (c[2] == 0x5b))
-          return (c[3] | 0x80);
+        if (c[0] == 0x1b) {
+          //read escaped chars
+          r += read(0, &c[1], sizeof(c)-1);
+          // function keys
+          if ((r==4) & (c[0] == 0x1b) & (c[1] == 0x5b) & (c[2] == 0x5b))
+            return (c[3] | 0x80);
+          else
+            return 0;
+        }
+           
         return c[0];
     }
 }
@@ -107,21 +119,87 @@ int getch()
 // keyboard read thread
 static void *kb_read_thread()
 {
-//   int nSig;
-
     while (1) {
       if (kbhit()) {
           key_down=getch();
           if (key_down == 0x18)
               exit(1);
           //printf("%02X",key_down);
+          //printf("%c",key_down);
+          usleep(7000);
+          key_down = 0;
       } else {
           key_down = 0;
       }
-      usleep(50000);
+      usleep(30000);
     }
 }
 
+struct axis_state {
+    short x, y;
+};
+
+int read_event(int fd, struct js_event *event)
+{
+  ssize_t bytes;
+  bytes = read(fd, event, sizeof(*event));
+    if (bytes == sizeof(*event))
+        return 0;
+    /* Error, could not read full event. */
+    return -1;
+}
+
+size_t get_axis(struct js_event *event, struct axis_state axis[3])
+{
+    size_t axis_ev = event->number / 2;
+    if (axis_ev < 3) {
+        if (event->number % 2 == 0)
+            axis[axis_ev].x = event->value;
+        else
+            axis[axis_ev].y = event->value;
+    }
+    return axis_ev;
+}
+
+// joystick read thread
+static void *js_read_thread()
+{
+  int js;
+  const char *jsdev="/dev/input/js0";
+  struct js_event event;
+  struct axis_state axis[3] = {0};
+  size_t axis_ev;
+
+  while (1) {
+    js = open(jsdev, O_RDONLY);
+
+    if (js >= 0) {
+      while (read_event(js, &event) == 0) {
+        switch (event.type) {
+    //        case JS_EVENT_BUTTON:
+    //            printf("Button %u %s\r\n", event.number, event.value ? "pressed" : "released");
+    //            break;
+          case JS_EVENT_AXIS:
+              axis_ev = get_axis(&event, axis);
+              if (axis_ev < 3) {
+    //                printf("Axis %zu at (%6d, %6d)\r\n", axis_ev, axis[axis_ev].x, axis[axis_ev].y);
+                  if (axis[axis_ev].x > 1024){
+                    joy3_down = 1;
+                  } else {
+                    joy3_down = 0;
+                  }
+              }
+              break;
+          default:
+              /* Ignore init events. */
+              break;
+        }
+      }
+    }
+    close(jsdev);
+    usleep(1000000);
+  }
+}
 
 // VIA
 
@@ -570,8 +648,13 @@ void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)
         exit(1);
     }
 */
-    if (pthread_create(&keyboardThread, NULL, kb_read_thread, NULL)) {
+    if (pthread_create(&keyboard_thread, NULL, kb_read_thread, NULL)) {
         printf("kb thread create failed\n");
+        exit(1);
+    }
+
+    if (pthread_create(&joystick_thread, NULL, js_read_thread, NULL)) {
+        printf("js thread create failed\n");
         exit(1);
     }
 
@@ -639,6 +722,12 @@ void mon_write(uint16_t address, uint8_t data)
 uint8_t mon_do_tick(uint8_t ticks)
 {
   via2_kb_cycles += ticks;
+
+  if (joy3_down) {
+    via2_setBitPB(7,0);
+  } else {
+    via2_setBitPB(7,1);
+  }
 
   if (via2_tick(ticks))
     *interrupt = 1;

@@ -8,7 +8,7 @@ all: via1 via2 vic load save
 
 via1:
 	$(CC) $(CFLAGS) -c -o via1.o via1.c 
-	$(CC) $(CFLAGS) -fPIC -shared -o via1.so via1.o 
+	$(CC) $(CFLAGS) via1.o -fPIC -shared -l pthread -o via1.so 
 
 via2:
 	$(CC) $(CFLAGS) -c -o via2.o via2.c 
