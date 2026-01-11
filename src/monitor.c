@@ -841,6 +841,25 @@ loop:
         load_trap_lib(data_buffer,address);
       }
     }
+    if (i=='s') {
+          int err=0;
+          printf(" ");
 
-  }
+          if ((err=getBuffer(data_buffer)) <= 0){
+            printf(" ????\r\n");
+            if (!use_stdin) {
+              printf("\r\nERROR in line %i\r\n",line);
+              exit(1);
+            }
+          }
+
+          if (err > 0) {
+            // load
+            printf("\r\n");
+            system(data_buffer);
+            printf("\r\n");
+          }
+        }
+      }
+  
 }
