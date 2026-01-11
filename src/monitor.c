@@ -348,6 +348,38 @@ void write6502(uint16_t address, uint8_t bank, uint8_t data)
   mem[address] = data;
 }
 
+int getLine(char *buffer)
+{
+  int key;
+  int valid = 0;
+
+  buffer[0]=0;
+
+  // consume leading spaces
+  if (use_stdin) {
+    while ((key=getch()) == ' ');
+  } else {
+    while ((key=getch_from_file(infile)) == ' ');
+  }
+
+    // consume until space
+  
+  while (key != 13 && key != '\n') {
+    buffer[valid++]=key;
+
+    printf("%c",key);
+
+    if (use_stdin) {
+      key=getch();
+    } else {
+      key=getch_from_file(infile);
+    }
+  }
+
+  buffer[valid] = 0; //zero termination
+  return valid; 
+}
+
 int getBuffer(char *buffer)
 {
   int key;
@@ -845,7 +877,7 @@ loop:
           int err=0;
           printf(" ");
 
-          if ((err=getBuffer(data_buffer)) <= 0){
+          if ((err=getLine(data_buffer)) <= 0){
             printf(" ????\r\n");
             if (!use_stdin) {
               printf("\r\nERROR in line %i\r\n",line);
