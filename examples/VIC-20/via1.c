@@ -150,7 +150,7 @@ static void *js_read_thread()
         }
       }
     }
-    close(jsdev);
+    close(js);
     usleep(1000000);
   }
 }
@@ -546,7 +546,7 @@ bool via1_tick(int cycles)
 // Basic info
 const char* name()
 {
-    return "Commodore VIC-20 VIA 1";
+    return "Commodore VIC-20 VIA 1 with joystick";
 }
 
 void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)

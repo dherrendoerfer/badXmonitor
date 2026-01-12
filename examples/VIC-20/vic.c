@@ -89,6 +89,7 @@ volatile uint8_t soprano_sw = 0;
 volatile uint8_t soprano_freq = 0;
 volatile uint8_t noise_sw = 0;
 volatile uint8_t noise_freq = 0;
+volatile uint8_t snd_volume = 0;
 
 int8_t rndnoise[128] = {55,203,99,196,161,81,5,52,189,245,9,31,232,169,182,177,81,217,65,166,128,43,121,159,252,130,1,90,230,59,65,96,234,53,243,176,11,144,197,159,122,149,213,179,78,158,91,68,111,193,132,14,88,96,140,232,60,185,50,211,3,195,158,97,201,67,246,9,212,58,54,146,211,182,105,49,189,128,163,42,13,204,222,251,26,160,172,66,184,37,57,145,39,92,181,251,41,188,219,87,84,109,179,193,169,85,78,161,118,3,234,174,77,18,232,63,202,61,116,218,215,167,210,251,146,65,202,167};
 
@@ -334,26 +335,39 @@ static void *sound_thread(void *arg)
     while (1) {
       uint16_t i = 0;
       while  (i<buff_size){
-        bass_count += bass_freq;
-        alto_count += alto_freq;
-        soprano_count += soprano_freq;
-        noise_count += noise_freq;
+        if (bass_sw ) { 
+          if (bass_count == 0){
+            bass_count = 127-bass_freq << 1;
+            bass= !bass;
+          } else { 
+            bass_count--;
+          }
+        }
+        if (alto_sw) {
+          if (alto_count == 0){
+            alto_count = 127-alto_freq;
+            alto= !alto;
+          } else {
+            alto_count--;
+          }
+        }
 
-        if (bass_count > 127 << 3){
-          bass= !bass;
-          bass_count = 0;
+        if (soprano_sw) {
+          if (soprano_count == 0){
+            soprano_count = 127-soprano_freq >> 1;
+            soprano= !soprano;
+          } else {
+            soprano_count--;
+          }
         }
-        if (alto_count > 127 << 2){
-          alto= !alto;
-          alto_count = 0;
-        }
-        if (soprano_count > 127 << 1){
-          soprano= !soprano;
-          soprano_count = 0;
-        }
-        if (noise_count > 127 << 3){
-          noise++ ;
-          noise_count = 0;
+
+        if (noise_sw) {
+          if (noise_count == 0){
+            noise_count = 127-noise_freq >> 1;
+            noise++;
+          } else {
+            noise_count--;
+          }
         }
 
         buff[i++] == 0;
@@ -378,7 +392,12 @@ static void *sound_thread(void *arg)
             buff[i] -= 64;
 
         if (noise_sw)
-          buff[i] += rndnoise[noise & 0x7F] >> 2;
+          buff[i] += rndnoise[noise>>1] >> 2;
+
+        if (snd_volume == 0)
+          buff[i] = 0;
+        else
+          buff[i] = buff[i] >> ((15-snd_volume)/4);
 
         i++;
       }
@@ -608,6 +627,7 @@ void mon_write(uint16_t address, uint8_t data)
             break;
     case 0x0e:
             aux_color = (data & 0xf0) >> 4;
+            snd_volume = (data & 0x0f);
             #ifdef DEBUG
             printf("aux_color : %04X\r\n",aux_color);
             #endif

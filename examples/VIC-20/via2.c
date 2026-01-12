@@ -196,7 +196,7 @@ static void *js_read_thread()
         }
       }
     }
-    close(jsdev);
+    close(js);
     usleep(1000000);
   }
 }
@@ -595,7 +595,7 @@ bool via2_tick(int cycles)
 // Basic info
 const char* name()
 {
-    return "Commodore VIC-20 VIA 2 with keyboard";
+    return "Commodore VIC-20 VIA 2 with keyboard, joystick";
 }
 
 
