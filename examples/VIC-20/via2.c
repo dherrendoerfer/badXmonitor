@@ -81,6 +81,7 @@ volatile char key_down = 0;
 
 volatile char joy3_down = 0;
 
+volatile int js = 0;
 pthread_t keyboard_thread;
 pthread_t joystick_thread;
 
@@ -164,7 +165,6 @@ size_t get_axis(struct js_event *event, struct axis_state axis[3])
 // joystick read thread
 static void *js_read_thread()
 {
-  int js;
   const char *jsdev="/dev/input/js0";
   struct js_event event;
   struct axis_state axis[3] = {0};
@@ -195,8 +195,9 @@ static void *js_read_thread()
               break;
         }
       }
+      close(js);
     }
-    close(js);
+    js=0;
     usleep(1000000);
   }
 }
@@ -723,12 +724,14 @@ uint8_t mon_do_tick(uint8_t ticks)
 {
   via2_kb_cycles += ticks;
 
-  if (joy3_down) {
-    via2_setBitPB(7,0);
-  } else {
-    via2_setBitPB(7,1);
+  if (js) {
+    if (joy3_down) {
+      via2_setBitPB(7,0);
+    } else {
+      via2_setBitPB(7,1);
+    }
   }
-
+  
   if (via2_tick(ticks))
     *interrupt = 1;
   else 

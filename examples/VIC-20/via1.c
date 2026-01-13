@@ -69,6 +69,7 @@ int           via1__tick;
 static const char * VIAREG2STR[] = { "ORB_IRB", "ORA_IRA", "DDRB", "DDRA", "T1_C_LO", "T1_C_HI", "T1_L_LO", "T1_L_HI", "T2_C_LO", "T2_C_HI", "SR", "ACR", "PCR", "IFR", "IER", "ORA_IRA_NH" };
 #endif
 
+volatile int js;
 volatile char joy0_down = 0;
 volatile char joy1_down = 0;
 volatile char joy2_down = 0;
@@ -105,7 +106,6 @@ size_t get_axis(struct js_event *event, struct axis_state axis[3])
 // joystick read thread
 static void *js_read_thread()
 {
-  int js;
   const char *jsdev="/dev/input/js0";
   struct js_event event;
   struct axis_state axis[3] = {0};
@@ -149,8 +149,9 @@ static void *js_read_thread()
               break;
         }
       }
+      close(js);
     }
-    close(js);
+    js=0;
     usleep(1000000);
   }
 }
@@ -594,26 +595,28 @@ void mon_write(uint16_t address, uint8_t data)
 
 uint8_t mon_do_tick(uint8_t ticks)
 {
-  if (joy0_down) 
-    via1_setBitPA(2,0);
-  else 
-    via1_clearBitPA(2);
+  if (js) {
+    if (joy0_down) 
+      via1_setBitPA(2,0);
+    else 
+      via1_clearBitPA(2);
 
-  if (joy1_down) 
-    via1_setBitPA(3,0);
-  else 
-    via1_setBitPA(3,1);
+    if (joy1_down) 
+      via1_setBitPA(3,0);
+    else 
+      via1_setBitPA(3,1);
 
-  if (joy2_down) 
-    via1_setBitPA(4,0);
-  else 
-    via1_setBitPA(4,1);
+    if (joy2_down) 
+      via1_setBitPA(4,0);
+    else 
+      via1_setBitPA(4,1);
 
-  if (joy_fire_down) 
-    via1_setBitPA(5,0);
-  else 
-    via1_setBitPA(5,1);
-  
+    if (joy_fire_down) 
+      via1_setBitPA(5,0);
+    else 
+      via1_setBitPA(5,1);
+  }
+
   if (via1_tick(ticks))
     *interrupt = 1;
   else 
