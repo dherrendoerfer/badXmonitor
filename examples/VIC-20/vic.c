@@ -16,6 +16,9 @@
 //#define DEBUG 1
 //#define DEBUGIO 1
 
+
+// VIC-I (MOS 6560) implementation
+
 #define VID_MEMSTART 0x1000
 #define CHAR_ROMSTART 0x8000
 
@@ -68,9 +71,12 @@ uint16_t current_column = 0;
 
 #define ntsc_screen_width 240
 #define ntsc_screen_height 238 //233
+#define ntsc_screen_last_line 261
+
 //uint8_t pal_screen_width = 233;
 //uint8_t pal_screen_height = 284;
 
+// microseconds per line drawn minus 15 (65 clock cycles)
 #define US_PERLINE 50
 
 pthread_t soundThread;
@@ -93,22 +99,71 @@ volatile uint8_t snd_volume = 0;
 
 int8_t rndnoise[128] = {55,203,99,196,161,81,5,52,189,245,9,31,232,169,182,177,81,217,65,166,128,43,121,159,252,130,1,90,230,59,65,96,234,53,243,176,11,144,197,159,122,149,213,179,78,158,91,68,111,193,132,14,88,96,140,232,60,185,50,211,3,195,158,97,201,67,246,9,212,58,54,146,211,182,105,49,189,128,163,42,13,204,222,251,26,160,172,66,184,37,57,145,39,92,181,251,41,188,219,87,84,109,179,193,169,85,78,161,118,3,234,174,77,18,232,63,202,61,116,218,215,167,210,251,146,65,202,167};
 
+#ifndef REALTIME
+//false raster clock counter
+uint16_t vic_clocks = 0;
+#endif
+
+#ifdef REALTIME
+uint32_t mmio_peri_base = 0x3F000000;
+#define ST_BASE (mmio_peri_base + 0x003000) /* Timer */
+uint32_t *st;
+volatile uint32_t *timer;
+
+void setup_timer()
+{
+  int mem_fd;
+  void *st_map;
+
+   /* open /dev/mem */
+   if ((mem_fd = open("/dev/mem", O_RDWR|O_SYNC) ) < 0) {
+      printf("can't open /dev/mem \n");
+      exit(-1);
+   }
+
+   /* mmap GPIO */
+   st_map = mmap(
+      NULL, 
+      4096,
+      PROT_READ|PROT_WRITE,
+      MAP_SHARED,
+      mem_fd,
+      ST_BASE
+   );
+   /* close fd */
+   close(mem_fd); 
+
+   if (st_map == MAP_FAILED) {
+      printf("mmap error %d\n", (int)st_map);//errno also set!
+      exit(-1);
+   }
+
+  /* store map pointer */
+  st = st_map;
+  timer=(volatile void*)st+4;
+}
+#endif //REALTIME
+
+// bits_per_pixel / 8
+uint8_t col_stride = 0;
+
 static inline void _point(uint16_t x, uint16_t y, uint8_t col)
 {
     uint16_t pixel = palette[col];
 
     x=x<<1; y=y<<1;
 
-    uint32_t location = x*screen_info.bits_per_pixel/8 + 
-                                y*fixed_info.line_length;
-    *((uint16_t*) (fbbuffer + location)) = pixel;
-    *((uint16_t*) (fbbuffer + location+screen_info.bits_per_pixel/8)) = pixel;
-    *((uint16_t*) (fbbuffer + location+fixed_info.line_length)) = pixel;
-    *((uint16_t*) (fbbuffer + location+fixed_info.line_length+screen_info.bits_per_pixel/8)) = pixel;
+    uint32_t location = fbbuffer + (x * col_stride + 
+                                    y * fixed_info.line_length);
+    *((uint16_t*) (location)) = pixel;
+    *((uint16_t*) (location+col_stride)) = pixel;
+    *((uint16_t*) (location+fixed_info.line_length)) = pixel;
+    *((uint16_t*) (location+fixed_info.line_length+col_stride)) = pixel;
 }
 
 static void *display_thread(void *arg)
 {
+  uint32_t stop,start;
 /*
   uint16_t g,h,i,j;
   uint8_t buf, c_rom;
@@ -157,9 +212,20 @@ static void *display_thread(void *arg)
 
 
     for (current_line;current_line<y_border;current_line++) {
+      #ifdef REALTIME
+      start=*timer;
+      #endif
+
       for (current_column=0; current_column < ntsc_screen_width; current_column++)
         _point( current_column, current_line, border_color);
+      
+      #ifdef REALTIME
+      //wait for 65 cycles to pass
+      while (((volatile)*timer - start) < 65)
+        asm volatile ("nop\nnop\nnop\nnop\nnop");
+      #else
       usleep(US_PERLINE);
+      #endif
     }
     
     if (double_size) {
@@ -167,6 +233,9 @@ static void *display_thread(void *arg)
       for ( v_screen_pos = 0 ; v_screen_pos < rows; v_screen_pos++) {
         // draw 8 lines
         for (uint8_t h=0; h<16; h++) {
+          #ifdef REALTIME
+          start=*timer;
+          #endif
           //draw border
           for (current_column=0; current_column < x_border; current_column++)
             _point( current_column, current_line, border_color);
@@ -178,17 +247,17 @@ static void *display_thread(void *arg)
             
             if (col_ram & 0x08) {
               //Multicolor mode
-              uint8_t pixels[]={(c_rom & 0xC0)>>6, (c_rom & 0x30)>>4, (c_rom & 0x0C)>>2, (c_rom & 0x03) };
+              //uint8_t pixels[]={(c_rom & 0xC0)>>6, (c_rom & 0x30)>>4, (c_rom & 0x0C)>>2, (c_rom & 0x03) };
               uint8_t pcols[]={screen_color,border_color,col_ram & 0x07,aux_color};
 
-              _point( current_column++, current_line, pcols[pixels[0]]);
-              _point( current_column++, current_line, pcols[pixels[0]]);
-              _point( current_column++, current_line, pcols[pixels[1]]);
-              _point( current_column++, current_line, pcols[pixels[1]]);
-              _point( current_column++, current_line, pcols[pixels[2]]);
-              _point( current_column++, current_line, pcols[pixels[2]]);
-              _point( current_column++, current_line, pcols[pixels[3]]);
-              _point( current_column++, current_line, pcols[pixels[3]]);
+              _point( current_column++, current_line, pcols[(c_rom & 0xC0)>>6]);
+              _point( current_column++, current_line, pcols[(c_rom & 0xC0)>>6]);
+              _point( current_column++, current_line, pcols[(c_rom & 0x30)>>4]);
+              _point( current_column++, current_line, pcols[(c_rom & 0x30)>>4]);
+              _point( current_column++, current_line, pcols[(c_rom & 0x0C)>>2]);
+              _point( current_column++, current_line, pcols[(c_rom & 0x0C)>>2]);
+              _point( current_column++, current_line, pcols[(c_rom & 0x03)]);
+              _point( current_column++, current_line, pcols[(c_rom & 0x03)]);
 
             } else {
               //Singlecolor
@@ -197,20 +266,25 @@ static void *display_thread(void *arg)
                 pcols[0]=pcols[1];
                 pcols[1]=screen_color;
               }
-               _point( current_column++, current_line, pcols[((c_rom&1<<7) != 0)]);
-               _point( current_column++, current_line, pcols[((c_rom&1<<6) != 0)]);
-               _point( current_column++, current_line, pcols[((c_rom&1<<5) != 0)]);
-               _point( current_column++, current_line, pcols[((c_rom&1<<4) != 0)]);
-               _point( current_column++, current_line, pcols[((c_rom&1<<3) != 0)]);
-               _point( current_column++, current_line, pcols[((c_rom&1<<2) != 0)]);
-               _point( current_column++, current_line, pcols[((c_rom&1<<1) != 0)]);
-               _point( current_column++, current_line, pcols[((c_rom&1<<0) != 0)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<7)>>7)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<6)>>6)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<5)>>5)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<4)>>4)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<3)>>3)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<2)>>2)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<1)>>1)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<0))]);
             }
           }
           for (current_column; current_column < ntsc_screen_width; current_column++)
             _point( current_column, current_line, border_color);
 
-          usleep(US_PERLINE);
+          #ifdef REALTIME
+          //wait for 65 cycles to pass
+          while (((volatile)*timer - start) < 65)
+            asm volatile ("nop\nnop\nnop\nnop\nnop");
+
+          #endif
           current_line++;
         }
       }
@@ -219,6 +293,9 @@ static void *display_thread(void *arg)
       for ( v_screen_pos = 0 ; v_screen_pos < rows; v_screen_pos++) {
         // draw 8 lines
         for (uint8_t h=0; h<8; h++) {
+          #ifdef REALTIME
+          start=*timer;
+          #endif
           //draw border
           for (current_column=0; current_column < x_border; current_column++)
             _point( current_column, current_line, border_color);
@@ -230,17 +307,17 @@ static void *display_thread(void *arg)
             
             if (col_ram & 0x08) {
               //Multicolor mode
-              uint8_t pixels[]={(c_rom & 0xC0)>>6, (c_rom & 0x30)>>6, (c_rom & 0x0C)>>6, (c_rom & 0x03)>>6 };
+              //uint8_t pixels[]={(c_rom & 0xC0)>>6, (c_rom & 0x30)>>4, (c_rom & 0x0C)>>2, (c_rom & 0x03) };
               uint8_t pcols[]={screen_color,border_color,col_ram & 0x07,aux_color};
 
-              _point( current_column++, current_line, pcols[pixels[0]]);
-              _point( current_column++, current_line, pcols[pixels[0]]);
-              _point( current_column++, current_line, pcols[pixels[1]]);
-              _point( current_column++, current_line, pcols[pixels[1]]);
-              _point( current_column++, current_line, pcols[pixels[2]]);
-              _point( current_column++, current_line, pcols[pixels[2]]);
-              _point( current_column++, current_line, pcols[pixels[3]]);
-              _point( current_column++, current_line, pcols[pixels[3]]);
+              _point( current_column++, current_line, pcols[(c_rom & 0xC0)>>6]);
+              _point( current_column++, current_line, pcols[(c_rom & 0xC0)>>6]);
+              _point( current_column++, current_line, pcols[(c_rom & 0x30)>>4]);
+              _point( current_column++, current_line, pcols[(c_rom & 0x30)>>4]);
+              _point( current_column++, current_line, pcols[(c_rom & 0x0C)>>2]);
+              _point( current_column++, current_line, pcols[(c_rom & 0x0C)>>2]);
+              _point( current_column++, current_line, pcols[(c_rom & 0x03)]);
+              _point( current_column++, current_line, pcols[(c_rom & 0x03)]);
 
             } else {
               //Singlecolor
@@ -250,38 +327,60 @@ static void *display_thread(void *arg)
                 pcols[1]=screen_color;
               }
 
-               _point( current_column++, current_line, pcols[((c_rom&1<<7) != 0)]);
-               _point( current_column++, current_line, pcols[((c_rom&1<<6) != 0)]);
-               _point( current_column++, current_line, pcols[((c_rom&1<<5) != 0)]);
-               _point( current_column++, current_line, pcols[((c_rom&1<<4) != 0)]);
-               _point( current_column++, current_line, pcols[((c_rom&1<<3) != 0)]);
-               _point( current_column++, current_line, pcols[((c_rom&1<<2) != 0)]);
-               _point( current_column++, current_line, pcols[((c_rom&1<<1) != 0)]);
-               _point( current_column++, current_line, pcols[((c_rom&1<<0) != 0)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<7)>>7)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<6)>>6)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<5)>>5)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<4)>>4)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<3)>>3)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<2)>>2)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<1)>>1)]);
+               _point( current_column++, current_line, pcols[((c_rom&1<<0))]); 
             }
           }
 
           for (current_column; current_column < ntsc_screen_width; current_column++)
             _point( current_column, current_line, border_color);
 
-          usleep(US_PERLINE);
+          #ifdef REALTIME
+          //wait for 65 cycles to pass
+          while (((volatile)*timer - start) < 65)
+            asm volatile ("nop\nnop\nnop\nnop\nnop");
+          #endif
+ 
           current_line++;
         }
       }
     }
 
+    #ifdef REALTIME
+    start = *timer;
+    #endif
     for (current_line; current_line<ntsc_screen_height; current_line++) {
       for (current_column=0; current_column < ntsc_screen_width; current_column++)
         _point( current_column, current_line, border_color);
+
+      #ifdef REALTIME
+      //wait for 65 cycles to pass
+      while (((volatile)*timer - start) < 65)
+        asm volatile ("nop\nnop\nnop\nnop\nnop");
+      #else
       usleep(US_PERLINE);
+      #endif
     }
 
     // offsreen for raster retrace detect
-    for (current_line; current_line<ntsc_screen_height+4; current_line++) {
+    for (current_line; current_line<ntsc_screen_last_line; current_line++) {
+      #ifdef REALTIME
+      //wait for 65 cycles to pass
+      while (((volatile)*timer - start) < 65)
+        asm volatile ("nop\nnop\nnop\nnop\nnop");
+      #else
       usleep(US_PERLINE+15);
+      #endif
     }
 
-    usleep(25000);
+
+//    usleep(25000);
   }
 }
 
@@ -337,7 +436,7 @@ static void *sound_thread(void *arg)
       while  (i<buff_size){
         if (bass_sw ) { 
           if (bass_count == 0){
-            bass_count = 127-bass_freq << 1;
+            bass_count = (127-bass_freq) << 1;
             bass= !bass;
           } else { 
             bass_count--;
@@ -354,7 +453,7 @@ static void *sound_thread(void *arg)
 
         if (soprano_sw) {
           if (soprano_count == 0){
-            soprano_count = 127-soprano_freq >> 1;
+            soprano_count = (127-soprano_freq) >> 1;
             soprano= !soprano;
           } else {
             soprano_count--;
@@ -363,14 +462,14 @@ static void *sound_thread(void *arg)
 
         if (noise_sw) {
           if (noise_count == 0){
-            noise_count = 127-noise_freq >> 1;
+            noise_count = (127-noise_freq) >> 1;
             noise++;
           } else {
             noise_count--;
           }
         }
 
-        buff[i++] == 0;
+        buff[i++] = 0;
         buff[i] = 0;
 
         if (bass_sw)
@@ -472,10 +571,16 @@ void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)
   interrupt = mon_interrupt;
   base_address = base_addr;
 
+  #ifdef REALTIME
+  setup_timer();
+  #endif
+
   if (fb_init()) {
     printf("\r\nFremebuffer init failed.!!\r\n");
     exit(1);
   }
+
+  col_stride = screen_info.bits_per_pixel/8;
 
   if (pthread_create(&videoThread, NULL, display_thread, NULL)) {
       printf("video thread create failed\n");
@@ -527,12 +632,20 @@ uint8_t mon_read(uint16_t address)
     case 2:
             return ((screen_mem_offset<<7) | (columns & 0x7f));
     case 3:
-            return(((current_line & 1) << 7) | ((rows << 1) & 0x7e) | (double_size & 1));
+            #ifdef REALTIME
+            return((((current_line) & 1) << 7) | ((rows << 1) & 0x7e) | (double_size & 1));
+            #else
+            return((((vic_clocks / 65) & 1) << 7) | ((rows << 1) & 0x7e) | (double_size & 1));
+            #endif
     case 4:
-            #ifdef DEBUGIO
+            #ifdef DEBUG
             printf("raster: 0x%03X\r\n", current_line);
             #endif
-            return((current_line>>1) & 0xff);
+            #ifdef REALTIME
+            return(((volatile)current_line) & 0xff);
+            #else
+            return((vic_clocks / 65)>>1);
+            #endif
     case 5:
             return (((screenmem & 0xf) << 8) | (charmem & 0xf));
   }
@@ -576,7 +689,7 @@ void mon_write(uint16_t address, uint8_t data)
             #endif
             break;
     case 3:
-            raster_value |= (data & 0x80) >> 7;
+            //raster_value |= (data & 0x80) >> 7;
             rows = (data & 0x7e) >> 1;
             double_size = data & 0x01;
             #ifdef DEBUG
@@ -585,7 +698,7 @@ void mon_write(uint16_t address, uint8_t data)
             #endif
             break;
     case 4:
-            raster_value = data << 1;
+            //raster_value = data << 1;
             break;
     case 5:
             screenmem=(data & 0xf0) >> 4;
@@ -630,6 +743,7 @@ void mon_write(uint16_t address, uint8_t data)
             snd_volume = (data & 0x0f);
             #ifdef DEBUG
             printf("aux_color : %04X\r\n",aux_color);
+            printf("snd_volume: %04X\r\n",snd_volume);
             #endif
             break;
     case 0x0f:
@@ -652,5 +766,11 @@ void mon_write(uint16_t address, uint8_t data)
 
 uint8_t mon_do_tick(uint8_t ticks)
 {
+  #ifndef REALTIME
+  vic_clocks+=ticks;
+  if (vic_clocks>16965)
+    vic_clocks-=16965;
+  #endif
+
   return *interrupt;
 }

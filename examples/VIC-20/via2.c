@@ -106,9 +106,21 @@ int getch()
         if (c[0] == 0x1b) {
           //read escaped chars
           r += read(0, &c[1], sizeof(c)-1);
+//          printf("%i",r);
+//          printf("%02X",c[0]);
+//          printf("%02X",c[1]);
+//          printf("%02X",c[2]);
           // function keys
           if ((r==4) & (c[0] == 0x1b) & (c[1] == 0x5b) & (c[2] == 0x5b))
             return (c[3] | 0x80);
+          else if ((r==3) & (c[0] == 0x1b) & (c[1] == 0x5b) & (c[2] == 0x44))  //Left
+            return 0xFC;
+          else if ((r==3) & (c[0] == 0x1b) & (c[1] == 0x5b) & (c[2] == 0x41))  //Up
+            return 0xFD;
+          else if ((r==3) & (c[0] == 0x1b) & (c[1] == 0x5b) & (c[2] == 0x43))  //Right
+            return 0xFE;
+          else if ((r==3) & (c[0] == 0x1b) & (c[1] == 0x5b) & (c[2] == 0x42))  //Down
+            return 0xFF;
           else
             return 0;
         }
@@ -125,14 +137,14 @@ static void *kb_read_thread()
           key_down=getch();
           if (key_down == 0x18)
               exit(1);
-          //printf("%02X",key_down);
-          //printf("%c",key_down);
-          usleep(7000);
+//          printf("%02X",key_down);
+//          printf("%c",key_down);
+          usleep(20000);
           key_down = 0;
       } else {
           key_down = 0;
       }
-      usleep(30000);
+      usleep(40000);
     }
 }
 
@@ -591,14 +603,11 @@ bool via2_tick(int cycles)
    return via2__IER & via2__IFR & 0x7f;
 }
 
-
-
 // Basic info
 const char* name()
 {
     return "Commodore VIC-20 VIA 2 with keyboard, joystick";
 }
-
 
 void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)
 {
@@ -633,22 +642,6 @@ void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)
         }
         printf("kb mode is %s\r\n", m);
 
-  /*
-    void *handle;
-
-    handle = dlopen ("libpthread.so", RTLD_NOW);
-    if (!handle) {
-        fputs (dlerror(), stderr);
-        exit(1);
-    }
-
-    int (*pthread_create)(pthread_t*, const pthread_attr_t*, void*, void*);
-
-    pthread_create = dlsym(handle, "pthread_create");
-    if (dlerror() != NULL)  {
-        exit(1);
-    }
-*/
     if (pthread_create(&keyboard_thread, NULL, kb_read_thread, NULL)) {
         printf("kb thread create failed\n");
         exit(1);
@@ -658,8 +651,6 @@ void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)
         printf("js thread create failed\n");
         exit(1);
     }
-
-
 
      via2_reset();
 }
@@ -680,6 +671,9 @@ int mon_banks()
 uint8_t mon_read(uint16_t address)
 {
     address = address & 0x0f;
+
+//    printf("addr: %04X:<-%02X\r\n", address,via2_readReg(address));
+
     return via2_readReg(address);
 }
 
@@ -691,6 +685,8 @@ void mon_write(uint16_t address, uint8_t data)
   via2_writeReg(address, data);
 
   int shift=0;
+
+//  printf("addr: %04X:->%02X\r\n", address,data);
 
   if (address == 0) {
     if (key_down != 0 && (key_to_scancode_xlate[(uint8_t)key_down] != 0xFF)) {
@@ -731,11 +727,11 @@ uint8_t mon_do_tick(uint8_t ticks)
       via2_setBitPB(7,1);
     }
   }
-  
+
   if (via2_tick(ticks))
-    *interrupt = 1;
+    *interrupt |= 1;
   else 
-    *interrupt = 0;
+    *interrupt &= ~1;
 
   return *interrupt;
 }

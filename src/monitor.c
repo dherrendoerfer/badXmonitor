@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <linux/kd.h>
 #include <linux/keyboard.h>
+#include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
 #include <signal.h>
@@ -56,6 +57,53 @@ int infile=0;
 // terminal settings
 struct termios previous_termios;
 int old_kbdmode;
+
+extern uint32_t mmio_peri_base;
+#define ST_BASE                  (mmio_peri_base + 0x003000) /* Timer */
+uint32_t *st;
+volatile uint64_t *timer;
+uint64_t timer_now;
+
+void setup_timer()
+{
+  int mem_fd;
+  void *st_map;
+
+   /* open /dev/mem */
+   if ((mem_fd = open("/dev/mem", O_RDWR|O_SYNC) ) < 0) {
+      printf("can't open /dev/mem \n");
+      exit(-1);
+   }
+
+   /* mmap GPIO */
+   st_map = mmap(
+      NULL, 
+      4096,
+      PROT_READ|PROT_WRITE,
+      MAP_SHARED,
+      mem_fd,
+      ST_BASE
+   );
+   /* close fd */
+   close(mem_fd); 
+
+   if (st_map == MAP_FAILED) {
+      printf("mmap error %d\n", (int)st_map);//errno also set!
+      exit(-1);
+   }
+
+  /* store map pointer */
+  st = st_map;
+  timer=(volatile void*)st+4;
+}
+
+#ifdef BLINKENLIGHTS
+void blinkenlights_init()
+{
+  uint8_t blinkenprog[]={};
+
+}
+#endif
 
 void reset_terminal_mode()
 {
@@ -290,8 +338,9 @@ uint8_t read6502(uint16_t address, uint8_t bank)
     return getch();
   }
 
-  if (IS_RAM(mem_desc[address]))
+  if (IS_RAM(mem_desc[address])){
     return mem[address];
+  }
 
   if (IS_TRAP(mem_desc[address])) {
     uint8_t (*trap_read)(uint16_t) = trap_map_read[address] ;
@@ -305,7 +354,6 @@ uint8_t read6502(uint16_t address, uint8_t bank)
     uint8_t (*io_read)(uint16_t) = io_map_read[address>>4] ;
     return (*io_read)(address);
   }
-
 
   return mem[address];
 }
@@ -330,7 +378,6 @@ void write6502(uint16_t address, uint8_t bank, uint8_t data)
     return;
   }
 
-
   if (IS_IO(mem_desc[address])) {
     void (*io_write)(uint16_t, uint8_t) = io_map_write[address>>4];
     (*io_write)(address, data);
@@ -342,7 +389,6 @@ void write6502(uint16_t address, uint8_t bank, uint8_t data)
     (*trap_write)(address, data);
     return;
   }
-
 
   //printf("X");
   mem[address] = data;
@@ -614,7 +660,6 @@ int main(int argc, char **argv)
           } else {
             i=getch_from_file(infile);
           }
-
         }
         printf("\r\n");
       }
@@ -758,6 +803,8 @@ int main(int argc, char **argv)
       //reset the cpu
       reset6502(0);
 
+      setup_timer();
+
       // step past the reset code
       for (int i=0 ; i<32 ; i++) {
         tick6502();
@@ -766,11 +813,15 @@ int main(int argc, char **argv)
           break;
       }
 
+      //uint16_t savedirq = 0;
       uint8_t cycles;
+      timer_now=*timer;
+
 loop:  
       int_before_step = interrupt;
       cycles = step6502();
-
+//      printf("cycles:%d\r\n",cycles);
+      interrupt = 0;
       // hardware ticks
       for (int i=0;i<plugin_tick_num;i++) {
         uint8_t (*mon_do_tick)(uint8_t);
@@ -778,8 +829,24 @@ loop:
         interrupt |= (*mon_do_tick)(cycles);    
       }
       
-      if (interrupt != int_before_step)
-        irq6502(interrupt);
+      if (interrupt != int_before_step) {
+//        printf("int:%i ",interrupt);
+        if (interrupt) {
+            irq6502(1);
+        } else {
+          irq6502(0);
+        }
+      }
+      
+#ifdef BLINKENLIGHTS
+      usleep(10000);
+#endif
+
+      //consume time()
+      while(timer_now + cycles > *timer)
+        asm volatile ("nop\nnop\nnop\nnop\nnop");
+      timer_now+=cycles;
+
 
 /*
 loop:

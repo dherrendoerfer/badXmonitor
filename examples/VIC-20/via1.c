@@ -119,7 +119,7 @@ static void *js_read_thread()
         switch (event.type) {
           case JS_EVENT_BUTTON:
   //            printf("Button %u %s\r\n", event.number, event.value ? "pressed" : "released");
-              if (event.number == 1) {
+              if (event.number < 0x05) {
                 if (event.value)
                   joy_fire_down=1;
                 else
@@ -618,8 +618,8 @@ uint8_t mon_do_tick(uint8_t ticks)
   }
 
   if (via1_tick(ticks))
-    *interrupt = 1;
+    *interrupt |= 2;
   else 
-    *interrupt = 0;
+    *interrupt &= ~2;
   return *interrupt;
 }

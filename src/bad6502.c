@@ -236,20 +236,22 @@ void irq6502(int state)
   }
 }
 
-void nmi6502()
+void nmi6502(int state)
 {
 #ifdef DEBUG
   printf("NMI6502\r\n");
 #endif
 
-  // Perform 6502 reset
-  GPIO_CLR = 1<<26; //set !RESET
-  one_clock();  
-  one_clock();  
-  one_clock();  
-  one_clock();  
-  GPIO_SET = 1<<26; //clear !RESET
-  clockticks6502 = 0;
+  //call an irq, but set the irq vector to nmi
+
+  if (state) {
+    // Perform 6502 irq
+    *gpio_o_clear = 1<<27;  
+  }
+  else {
+    *gpio_o_set = 1<<27;
+  }
+  
 }
 
 static uint32_t bus_rw = 0;
@@ -277,7 +279,9 @@ void tick6502()
     vtmp=*gpio_o_set; //read back to flush to memory
   #endif
 
-//usleep(10000); // For the LED board
+  #ifdef BLINKENLIGHTS 
+  usleep(10000); // For the LED board
+  #endif
 
   // decode addr and !RW from the bus
   bus_rw = tmp & 1<<24;
@@ -353,6 +357,7 @@ uint8_t step6502()
   }
 
   ticks=ticktable_65c02[data];
+//  printf("ticks :%d\r\n",ticks);
   #ifdef STEPDEBUG
     printf("%04X:%02X                    %s\r\n",bus_addr, data, opnametable_c02[data]);
   #endif
