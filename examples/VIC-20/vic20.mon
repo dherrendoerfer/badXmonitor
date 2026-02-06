@@ -9,4 +9,5 @@ h 9110 /root/badXmonitor/examples/VIC-20/via1.so
 h 9120 /root/badXmonitor/examples/VIC-20/via2.so
 t F549 /root/badXmonitor/examples/VIC-20/load.so
 t F685 /root/badXmonitor/examples/VIC-20/save.so
+s clear
 g
