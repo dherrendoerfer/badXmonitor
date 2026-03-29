@@ -24,7 +24,7 @@ uint8_t key_to_scancode_xlate[256]= {
 /* D*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF,   // D
 /* E*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF,   // E
 /* F*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xFF, /*   */ 0xF2, /*   */ 0xF3, /*   */ 0x72, /*   */ 0x73 }; // F
-
+/*                                                                                                                                                                                 ^^^^   The cursor keys     ^^^^^          ^^^^^  */
 
 
 /* Source : https://www.lemon64.com/forum/viewtopic.php?t=68210

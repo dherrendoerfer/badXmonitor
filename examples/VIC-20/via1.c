@@ -618,8 +618,8 @@ uint8_t mon_do_tick(uint8_t ticks)
   }
 
   if (via1_tick(ticks))
-    *interrupt |= 2;
+    *interrupt |= 1;
   else 
-    *interrupt &= ~2;
+    *interrupt &= ~1;
   return *interrupt;
 }

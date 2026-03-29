@@ -29,13 +29,32 @@ static uint8_t *mem;
 static uint8_t *interrupt;
 static uint16_t base_address;
 
-uint16_t palette[] = {0x0000,0xFFFF,0x69AD,0x752E,0x69ED,0x5C6B,0x3146,0xBE37,0x6A6D,0x41C8,0x9B33,0x4228,0x6B6D,0x9E93,0x6AED,0x94B2};
+//uint16_t palette[] = {0x0000,0xFFFF,0x69AD,0x752E,0x69ED,0x5C6B,0x3146,0xBE37,0x6A6D,0x41C8,0x9B33,0x4228,0x6B6D,0x9E93,0x6AED,0x94B2};
+uint16_t palette[] = {
+0x0000,
+0xFFFF,
+0xB0E4,
+0x4F9F,
+0xB1FF,
+0x4706,
+0x19BF,
+0xDEA3,
+0xCAA0,
+0xED8E,
+0xE492,
+0x9FBF,
+0xE4FF,
+0x8F32,
+0x849F,
+0xE6F0 };
 
 uint16_t mem_addrs[]={0x8000,0x8400,0x8800,0x8C00,0x9000,0x9400,0x9800,0x9C00,0x0000,0x0400,0x0800,0x0c00,0x1000,0x1400,0x1800,0x1C00};
 uint16_t color_addrs[]={0x9400,0x9600};
 
 //Palette transcoder
 //uint32_t pal[]={0x000000,0xFFFFFF,0x68372B,0x70A4B2,0x6F3D86,0x588D43,0x352879,0xB8C76F,0x6F4F25,0x433900,0x9A6759,0x444444,0x6C6C6C,0x9AD284,0x6C5EB5,0x959595};
+
+//uint32_t pal[]={0x000000,0xFFFFFF,0xB61F21, 0x4DF0FF, 0xB43FFF, 0x44E237, 0x1A34FF, 0xDCD71B, 0xCA5400, 0xE9B072, 0xE79293, 0x9AF7FD, 0xE09FFF, 0x8FE493, 0x8290FF, 0xE5DE85};
 
 // internal registers expanded
 uint8_t interlaced;
@@ -88,13 +107,13 @@ snd_pcm_hw_params_t *params;
 #define PCM_CHANNELS 1
 
 volatile uint8_t bass_sw = 0;
-volatile uint8_t bass_freq = 0;
+volatile uint16_t bass_freq = 0;
 volatile uint8_t alto_sw = 0;
-volatile uint8_t alto_freq = 0;
+volatile uint16_t alto_freq = 0;
 volatile uint8_t soprano_sw = 0;
-volatile uint8_t soprano_freq = 0;
+volatile uint16_t soprano_freq = 0;
 volatile uint8_t noise_sw = 0;
-volatile uint8_t noise_freq = 0;
+volatile uint16_t noise_freq = 0;
 volatile uint8_t snd_volume = 0;
 
 int8_t rndnoise[128] = {55,203,99,196,161,81,5,52,189,245,9,31,232,169,182,177,81,217,65,166,128,43,121,159,252,130,1,90,230,59,65,96,234,53,243,176,11,144,197,159,122,149,213,179,78,158,91,68,111,193,132,14,88,96,140,232,60,185,50,211,3,195,158,97,201,67,246,9,212,58,54,146,211,182,105,49,189,128,163,42,13,204,222,251,26,160,172,66,184,37,57,145,39,92,181,251,41,188,219,87,84,109,179,193,169,85,78,161,118,3,234,174,77,18,232,63,202,61,116,218,215,167,210,251,146,65,202,167};
@@ -388,13 +407,13 @@ int setup_sound()
 {
   //snd_pcm_uframes_t frames = 32;
   int err;
-    // 1. PCM Gerät für Wiedergabe öffnen
+    // init pcm device
     if ((err = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0)) < 0) {
         fprintf(stderr, "cant open sound device: %s\n", snd_strerror(err));
         return 1;
     }
 
-    // 2. Hardware-Parameter zuweisen
+    // set hw params for realtime
     snd_pcm_hw_params_alloca(&params);
     snd_pcm_hw_params_any(pcm_handle, params);
     snd_pcm_hw_params_set_access(pcm_handle, params, SND_PCM_ACCESS_RW_INTERLEAVED);
@@ -420,7 +439,7 @@ static void *sound_thread(void *arg)
 	buff_size = 4 * PCM_CHANNELS * 2;/* 2 -> sample size */
 	buff = (char *) malloc(buff_size);
 
-  printf("sound buffer size: %d",buff_size);
+  //printf("sound buffer size: %d",buff_size);
 
   uint16_t bass_count = 0;
   uint16_t alto_count = 0;
@@ -436,16 +455,16 @@ static void *sound_thread(void *arg)
       while  (i<buff_size){
         if (bass_sw ) { 
           if (bass_count == 0){
-            bass_count = (127-bass_freq) << 1;
-            bass= !bass;
+            bass_count = bass_freq >> 1;
+            bass ^= 1;
           } else { 
             bass_count--;
           }
         }
         if (alto_sw) {
           if (alto_count == 0){
-            alto_count = 127-alto_freq;
-            alto= !alto;
+            alto_count = alto_freq >> 1;
+            alto ^= 1;
           } else {
             alto_count--;
           }
@@ -453,8 +472,8 @@ static void *sound_thread(void *arg)
 
         if (soprano_sw) {
           if (soprano_count == 0){
-            soprano_count = (127-soprano_freq) >> 1;
-            soprano= !soprano;
+            soprano_count = soprano_freq >> 1;
+            soprano ^= 1;
           } else {
             soprano_count--;
           }
@@ -472,31 +491,40 @@ static void *sound_thread(void *arg)
         buff[i++] = 0;
         buff[i] = 0;
 
-        if (bass_sw)
+        if (bass_sw) {
           if(bass)
-            buff[i] += 64;
-          else
-            buff[i] -= 64;
+            buff[i] = 40;
+//          else
+//            buff[i] -= 40;
+        }
 
-        if (alto_sw)
+        if (alto_sw) {
           if(alto)
-            buff[i] += 64;
-          else
-            buff[i] -= 64;
-      
-        if (soprano_sw)
+            if (buff[i])
+              buff[i] += 10;
+            else
+              buff[i] = 40;
+//          else
+//            buff[i] -= 30;
+        }
+
+        if (soprano_sw) {
           if(soprano)
-            buff[i] += 64;
-          else
-            buff[i] -= 64;
+            if (buff[i])
+              buff[i] += 10;
+            else
+              buff[i] = 40;
+//          else
+//            buff[i] -= 20;
+        }
 
         if (noise_sw)
-          buff[i] += rndnoise[noise>>1] >> 2;
+          buff[i] += (rndnoise[noise>>1] >> 4) - 128;
 
         if (snd_volume == 0)
           buff[i] = 0;
         else
-          buff[i] = buff[i] >> ((15-snd_volume)/4);
+          buff[i] = buff[i] * (float)((15-snd_volume)/15.0);
 
         i++;
       }
@@ -544,15 +572,16 @@ int fb_init()
             fprintf(stderr,"mmap failed");
          }
       } else {
-            fprintf(stderr,"ioctl failed");
-        }
+          fprintf(stderr,"ioctl failed");
+      }
     } else {
         fprintf(stderr,"open failed");
     }
+    
     if (fbbuffer && fbbuffer != MAP_FAILED)
-      munmap(fbbuffer, fbbuflen);
+        munmap(fbbuffer, fbbuflen);
     if (fbfd >= 0)
-      close(fbfd);
+        close(fbfd);
     
     return 1;
 }
@@ -600,12 +629,12 @@ void mon_init(uint16_t base_addr, void *mon_mem, uint8_t *mon_interrupt)
   for(int i=0;i<16;i++) {
     uint8_t r = pal[i] >> 16;
     uint8_t g = (pal[i] >> 8)&0xff;
-    uint8_t b = (pal[i] >> 16)&0xff;
+    uint8_t b = (pal[i])&0xff;
     
       printf("0x%04X,",((r>>3)<<11 | (g>>2)<<5 | (b>>3)));
       printf("\r\n");
-  }
-*/
+  } */
+
 }
 
 int mon_tick()
@@ -712,21 +741,21 @@ void mon_write(uint16_t address, uint8_t data)
             break;
     case 0x0a:
             bass_sw = (data & 0x80)>>7;
-            bass_freq =  data & 0x7f;
+            bass_freq = 384 - (data & 0x7f);
             #ifdef DEBUG
             printf ("bass=%02X ",data);
             #endif
             break;
     case 0x0b:
             alto_sw = (data & 0x80)>>7;
-            alto_freq = data & 0x7f;
+            alto_freq = 256 - (data & 0x7f);
             #ifdef DEBUG
             printf ("alto=%02X ",data);
             #endif
             break;
     case 0x0c:
             soprano_sw = (data & 0x80)>>7;
-            soprano_freq = data & 0x7f;
+            soprano_freq = 128 - (data & 0x7f);
             #ifdef DEBUG
             printf ("soprano=%02X ",data);
             #endif

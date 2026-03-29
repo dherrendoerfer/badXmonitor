@@ -5,8 +5,8 @@ CC = gcc
 CFLAGS = -O3 -march=native -funroll-loops -Wall -I.. 
 
 all:
-	$(CC) $(CFLAGS) -c -o bad6502.o bad6502.c #-DSTEPDEBUG
-	$(CC) $(CFLAGS) -o monitor monitor.c bad6502.o -ldl -D FAST
+	$(CC) $(CFLAGS) -c -o bad6502.o bad6502.c -D FAKERESET #-DSTEPDEBUG
+	$(CC) $(CFLAGS) -o monitor monitor.c bad6502.o -ldl -D FAST -D FAKERESET
 	$(MAKE) -C plugins all
 
 test-bin: all

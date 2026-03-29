@@ -171,7 +171,7 @@ void init6502()
   INP_GPIO(25);
   OUT_GPIO(25);
 
-  // Set GPIO pins 26 to output (!RESET)
+  // Set GPIO pins 26 to output (!RESET or !NMI)
   INP_GPIO(26);
   OUT_GPIO(26);
   GPIO_SET = 1<<26; //release !RESET
@@ -241,17 +241,16 @@ void nmi6502(int state)
 #ifdef DEBUG
   printf("NMI6502\r\n");
 #endif
-
-  //call an irq, but set the irq vector to nmi
-
+ 
+#ifdef FAKERESET
   if (state) {
-    // Perform 6502 irq
-    *gpio_o_clear = 1<<27;  
+    // Perform 6502 nmi
+    *gpio_o_clear = 1<<26;  
   }
   else {
-    *gpio_o_set = 1<<27;
+    *gpio_o_set = 1<<26;
   }
-  
+#endif
 }
 
 static uint32_t bus_rw = 0;

@@ -332,12 +332,13 @@ int load_trap_lib(char* libname, uint16_t base_address)
 uint8_t read6502(uint16_t address, uint8_t bank)
 {  
   // Virtual hardware (reads a char from stdin)
+  /*
   if (address == 0xFF01) {
     if (!kbhit())
       return 0;
     return getch();
   }
-
+*/
   if (IS_RAM(mem_desc[address])){
     return mem[address];
   }
@@ -362,19 +363,20 @@ uint8_t read6502(uint16_t address, uint8_t bank)
 void write6502(uint16_t address, uint8_t bank, uint8_t data)
 {
   // Virtual hardware (writes char to stdout)
+/*
   if (address == 0xFF00) {
     printf("%c",(char)data);
     fsync(1);
     return;
   }
-
+*/
   if (IS_RAM(mem_desc[address])) {
     mem[address] = data;
     return;
   }
 
   if (IS_ROM_P0(mem_desc[address])){ //simulated ROM 
-    // printf("X: 0x%04X ",address);
+    //printf("X: 0x%04X ",address);
     return;
   }
 
@@ -805,6 +807,17 @@ int main(int argc, char **argv)
 
       setup_timer();
 
+      #ifdef FAKERESET
+      uint16_t nmi_lo, nmi_hi;
+
+      // Fake reset board hack ... redirect reset to nmi
+      nmi_lo=mem[0xfffa];
+      nmi_hi=mem[0xfffb];
+
+      mem[0xfffa] = mem[0xfffc];
+      mem[0xfffb] = mem[0xfffd];
+      #endif
+
       // step past the reset code
       for (int i=0 ; i<32 ; i++) {
         tick6502();
@@ -812,6 +825,11 @@ int main(int argc, char **argv)
         if(bus_addr == 0xFFFD)
           break;
       }
+
+      #ifdef FAKERESET
+      mem[0xfffa] = nmi_lo;
+      mem[0xfffb] = nmi_hi;
+      #endif
 
       //uint16_t savedirq = 0;
       uint8_t cycles;
@@ -831,8 +849,15 @@ loop:
       
       if (interrupt != int_before_step) {
 //        printf("int:%i ",interrupt);
-        if (interrupt) {
-            irq6502(1);
+        #ifdef FAKERESET
+        if (interrupt & 1) {
+          nmi6502(1);
+        } else {
+          nmi6502(0);
+        }
+        #endif
+        if (interrupt & 2) {
+          irq6502(1);
         } else {
           irq6502(0);
         }

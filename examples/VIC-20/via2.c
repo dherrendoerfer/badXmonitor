@@ -729,9 +729,9 @@ uint8_t mon_do_tick(uint8_t ticks)
   }
 
   if (via2_tick(ticks))
-    *interrupt |= 1;
+    *interrupt |= 2;
   else 
-    *interrupt &= ~1;
+    *interrupt &= ~2;
 
   return *interrupt;
 }
